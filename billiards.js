@@ -111,7 +111,7 @@ window.onload = function init() {
   billiardBall_shaderProgram.modelViewMatrixUniform = gl.getUniformLocation(billiardBall_shaderProgram, "modelViewMatrix");
   billiardBall_shaderProgram.projectionMatrixUniform = gl.getUniformLocation(billiardBall_shaderProgram, "projectionMatrix");
   // TODO: Move the matrix initialization somewhere else
-  projectionMatrix = ortho(-5, 5, -5, 5, -10000, 10000);
+  projectionMatrix = ortho(-2, 2, -2, 2, -10000, 10000);
 //  projectionMatrix = ortho(-100, 100, -100, 100, 1, -1);
 //  modelViewMatrix = mult(scalem(0.1, 0.1, 0.1), translate(0, 0, 50));
 //  projectionMatrix = scalem(1.0, 1.0, 1.0);
