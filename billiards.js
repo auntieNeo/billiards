@@ -6,7 +6,7 @@ var gl;
 function animate() {
   // TODO: compute elapsed time from last render and update the balls'
   // positions and velocities accordingly.
-  modelViewMatrix = mult(rotate(0.1, vec3(1.0, 1.0, 0.0)), modelViewMatrix);
+  modelViewMatrix = mult(rotate(0.5, vec3(1.0, 1.0, 0.0)), modelViewMatrix);
 }
 
 function tick() {
@@ -221,6 +221,7 @@ function loadObjMesh(text) {
     indices: [],
   };
   var lines = text.split(/\n/);
+  var reIndexedVerticies = [];
 
   // Iterate through each line, collecting all data
   for (var i = 0; i < lines.length; ++i) {
@@ -246,7 +247,6 @@ function loadObjMesh(text) {
               parseFloat(fields[1]),
               parseFloat(fields[2]),
               parseFloat(fields[3])));
-        mesh.verticies.push({ position: mesh.positions[mesh.positions.length - 1] });
         break;
       case 'vt':
         // Vertex texture (UV) position
@@ -296,20 +296,53 @@ function loadObjMesh(text) {
           if (mesh.verticies[positionIndex] === undefined)
             mesh.verticies[positionIndex] = {};
             */
-          // TODO: Check for conflicting indices that Blender might have exported (unlikely)
+          // Build the vertex
+          var vertex = {
+            position: mesh.positions[positionIndex],
+            uv: mesh.uv[uvIndex],
+            normal: mesh.normals[normalIndex] };
+          // Assume the position index for the first vertex we encounter
+          var vertexIndex = positionIndex;
+          // Check for conflicting indices that Blender might have exported
+          // (e.g. texture coordinate seams or cusps in the surface normals)
+          // FIXME: We could check for uv AND normals here in one go, but
+          // Javascript object comparison kind of sucks.
+          if ((typeof mesh.verticies[vertexIndex] != 'undefined')
+              && (mesh.verticies[vertexIndex].uv != vertex.uv)) {
+              // NOTE: Some verticies have different texture coordinates for each
+              // face, especially along seams. We simply duplicate these verticies
+              // in the representation we send to WebGL. The difficulty with these
+              // verticies is that we must re-index some of the faces.
+              window.alert("Error: Conflicting texture coordinate in mesh! ("
+                  + mesh.verticies[positionIndex].uv[0] + "," + mesh.verticies[positionIndex].uv[1] + ") != ("
+                  + mesh.uv[uvIndex][0] + "," + mesh.uv[uvIndex][1] + ")");
+              // Look for identical verticies that we may have already re-indexed
+              // FIXME: Indexing a map by arbitrary objects in Javascript is
+              // not trivial, so I'm using a linear search here for now.
+              var k;
+              for (k = 0; k < reIndexedVerticies.length; ++k) {
+                if (reIndexedVerticies[k].uv == vertex.uv) {
+                  // We found the vertex; use its existing index
+                  vertexIndex = mesh.positions.length + k;
+                  break;
+                }
+              }
+              if (k == reIndexedVerticies.length) {
+                // We haven't encountered this vertex yet; re-index the vertex
+                reIndexedVerticies.push(vertex);
+                vertexIndex = mesh.positions.length + (reIndexedVerticies.length - 1);
+              }
+          }
           /*
-          if (mesh.verticies[positionIndex].uv === mesh.uv[uvIndex])
-            window.alert("Error: Conflicting UV coordinate in mesh!");
           if (mesh.verticies[positionIndex].normal === mesh.normals[normalIndex])
             window.alert("Error: Conflicting surface normal in mesh!");
             */
-          // Copy values into the verticies array (for easy access later)
-          mesh.verticies[positionIndex].position = mesh.positions[positionIndex];
-          mesh.verticies[positionIndex].uv = mesh.uv[uvIndex];
-          mesh.verticies[positionIndex].normal = mesh.normals[normalIndex];
+          // Copy values into the verticies array (for easy access when we
+          // build an array for OpenGL later)
+          mesh.verticies[vertexIndex] = vertex;
           // Copy the indices so that we will know the order in which to draw
           // the triangles in this surface 
-          mesh.indices.push(positionIndex);
+          mesh.indices.push(vertexIndex);
         }
         break;
     }
