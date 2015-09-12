@@ -6,6 +6,7 @@ var gl;
 function animate() {
   // TODO: compute elapsed time from last render and update the balls'
   // positions and velocities accordingly.
+  modelViewMatrix = mult(rotate(5, vec3(0.0, 1.0, 0.0)), modelViewMatrix);
 }
 
 function tick() {
@@ -14,18 +15,13 @@ function tick() {
   animate();
 }
 
-// FIXME: Need to move this into an object attribute
-var billiardBall_shaderProgram;
-// FIXME: Move these attribute handles
-var positionAttribute;
-var uvAttribute;
-var normalAttribute;
-
 // FIXME: Need to move these somewhere
 var projectionMatrix;
 var modelViewMatrix;
-var projectionMatrixUniform;
-var modelViewMatrixUniform;
+
+// TODO: Replace this with a global game state of some sort
+var testBilliardBall;
+
 
 //------------------------------------------------------------
 // render()
@@ -33,37 +29,7 @@ var modelViewMatrixUniform;
 function render() {
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-  var billiardBall = assets["common/billiard_ball.obj"];
-
-  // TODO: Put this draw call in an object method
-  gl.useProgram(billiardBall_shaderProgram);
-  gl.bindBuffer(gl.ARRAY_BUFFER, billiardBall.attributesBuffer);
-  gl.vertexAttribPointer(positionAttribute,
-                         3,         // vec3
-                         gl.FLOAT,  // 32bit floating point
-                         false,     // Don't normalize values
-                         4 * 8,     // Stride for eight 32-bit values per-vertex
-                         4 * 0);    // Position starts at the first value stored
-  gl.vertexAttribPointer(uvAttribute,
-                         2,         // vec2
-                         gl.FLOAT,  // 32bit floating point
-                         false,     // Don't normalize values
-                         4 * 8,     // Stride for eight 32-bit values per-vertex
-                         4 * 3);    // UV starts at the fourth value stored
-  gl.vertexAttribPointer(normalAttribute,
-                         3,         // vec3
-                         gl.FLOAT,  // 32bit floating point
-                         false,     // Don't normalize values
-                         4 * 8,     // Stride for eight 32-bit values per-vertex
-                         4 * 5);    // Normal starts at the sixth value stored
-  modelViewMatrix = mult(rotate(5, vec3(0.0, 1.0, 0.0)), modelViewMatrix);
-  gl.uniformMatrix4fv(billiardBall_shaderProgram.modelViewMatrixUniform, false, flatten(modelViewMatrix));
-  gl.uniformMatrix4fv(billiardBall_shaderProgram.projectionMatrixUniform, false, flatten(projectionMatrix));
-  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, billiardBall.indicesBuffer);
-  gl.bindBuffer(gl.ARRAY_BUFFER, billiardBall.attributesBuffer);
-  gl.drawElements(gl.TRIANGLES, billiardBall.numIndices, gl.UNSIGNED_SHORT, 0);
-  gl.drawElements(gl.LINES, billiardBall.numIndices, gl.UNSIGNED_SHORT, 0);
-  gl.drawArrays(gl.LINES, 0, 6);
+  testBilliardBall.draw();
 }
 
 //------------------------------------------------------------
@@ -90,19 +56,6 @@ window.onload = function init() {
   // TODO: load shaders and initialize attribute
   // buffers
   //----------------------------------------
-  // FIXME: Move this into an object method
-  billiardBall_shaderProgram = initShaders(gl, "billiardball-vert", "billiardball-frag");
-  if (billiardBall_shaderProgram == -1) {
-    window.alert("Failed to init shaders.");
-  }
-  positionAttribute = gl.getAttribLocation(billiardBall_shaderProgram, "vertexPosition");
-  gl.enableVertexAttribArray(positionAttribute);
-  uvAttribute = gl.getAttribLocation(billiardBall_shaderProgram, "vertexUV");
-  gl.enableVertexAttribArray(uvAttribute);
-  normalAttribute = gl.getAttribLocation(billiardBall_shaderProgram, "vertexNormal");
-  gl.enableVertexAttribArray(normalAttribute);
-  billiardBall_shaderProgram.modelViewMatrixUniform = gl.getUniformLocation(billiardBall_shaderProgram, "modelViewMatrix");
-  billiardBall_shaderProgram.projectionMatrixUniform = gl.getUniformLocation(billiardBall_shaderProgram, "projectionMatrix");
   // TODO: Move the matrix initialization somewhere else
   projectionMatrix = ortho(-2, 2, -2, 2, -10000, 10000);
 //  projectionMatrix = ortho(-100, 100, -100, 100, 1, -1);
@@ -124,8 +77,19 @@ window.onload = function init() {
   loadAssets();
 };
 
+function startGame() {
+  //----------------------------------------
+  // TODO: Create game objects
+  //----------------------------------------
+  testBilliardBall = new BilliardBall(9);
+
+  // Start the asynchronous game loop
+  tick();
+}
+
 var geometryAssets = [ "common/billiard_ball.obj" ];
 var textureAssets = [ "common/billiard_ball_10.png" ];
+var shaderAssets = [ { name: "billiardball", vert: "billiardball-vert", frag: "billiardball-frag" } ];
 var assetIndex = 0;
 var assetHandle = null;
 var assets = {};
@@ -144,31 +108,59 @@ function loadAssets() {
       assetArray = textureAssets;
     } else {
       i -= textureAssets.length;
-      // All assets have been loaded; proceed to the game loop
-      tick();
-      return;
-    }
-  }
-  var assetFile = assetArray[i];
-  // TODO: Load the asset via asynchronous Ajax
-  if (assetHandle == null) {
-    assetHandle = loadFileAjax(assetFile);
-  }
-  if (assetHandle.done) {
-    if (assetHandle.success) {
-      if (assetArray == geometryAssets) {
-        // Load the mesh geometry into WebGL
-        var lines = assetHandle.text.split(/\n/);
-        assets[assetFile] = loadObjMesh(assetHandle.text);
-      } else if (assetArray == textureAssets) {
-        // TODO: Load the texture into WebGL
+      if (i < shaderAssets.length) {
+        message = "Loading shaders...";
+        assetArray = shaderAssets;
+      } else {
+        i -= shaderAssets.length;
+        // All assets have been loaded; proceed to the game loop
+        startGame();
+        return;
       }
-    } else {
-      // TODO: Make a better error message
-      window.alert("Error loading asset file: " + assetFile);
     }
-    assetHandle = null;
+  }
+  if (assetArray === shaderAssets) {
+    // Load both the vertex and fragment shaders from the DOM (no need
+    // for Ajax)
+    // TODO: There's really no reason to load shaders from the DOM. It might be
+    // more kosher to use Ajax here as well.
+    var shaderProgram =
+      initShaders(gl, shaderAssets[i].vert, shaderAssets[i].frag);
+    // Get shader attribute locations
+    shaderProgram.attributes = {
+      vertexPosition: gl.getAttribLocation(shaderProgram, "vertexPosition"),
+      vertexUV: gl.getAttribLocation(shaderProgram, "vertexUV"),
+      vertexNormal: gl.getAttribLocation(shaderProgram, "vertexNormal")
+    };
+    // Get shader uniform locations
+    shaderProgram.uniforms = {
+      modelViewMatrix: gl.getUniformLocation(shaderProgram, "modelViewMatrix"),
+      projectionMatrix: gl.getUniformLocation(shaderProgram, "projectionMatrix")
+    };
+    assets[shaderAssets[i].name] = shaderProgram;
     assetIndex += 1;
+  } else {
+    // Load the asset via asynchronous Ajax
+    var assetFile = assetArray[i];
+    if (assetHandle == null) {
+      assetHandle = loadFileAjax(assetFile);
+    }
+    if (assetHandle.done) {
+      if (assetHandle.success) {
+        if (assetArray === geometryAssets) {
+          // Load the mesh geometry into WebGL
+          var lines = assetHandle.text.split(/\n/);
+          assets[assetFile] = loadObjMesh(assetHandle.text);
+        } else if (assetArray === textureAssets) {
+          // TODO: Load the texture into WebGL
+        }
+      } else {
+        // TODO: Make a better error message
+        window.alert("Error loading asset file: " + assetFile);
+      }
+      assetHandle = null;
+      assetIndex += 1;
+    }
   }
   
   // Loop with a timeout while everything is being loaded
@@ -351,33 +343,8 @@ function loadObjMesh(text) {
     vertexIndices[i] = mesh.indices[i];
   }
 
+  // Uncomment to debug vertex data
   /*
-  // XXX Some fake vertex data for debugging
-  vertexAttributes = new Float32Array( [
-    -3.919802, 0.375929, 0.165147,
-    -4.016876, 0.361529, 0.165147,
-    -4.112070, 0.337684, 0.165147,
-    -4.204469, 0.304624, 0.165147,
-    -4.293182, 0.262665, 0.165147,
-    -4.377356, 0.212214, 0.165147,
-
-    0.0, 0.0, 0.0, 50.0, 50.0, 0.0, 0.0, 0.0,
-    1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-    0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-    100.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-    -100.0, -100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-    -100.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-  ] );
-  vertexIndices = new Int16Array( [
-    0, 1, 2,
-    1, 2, 3,
-    2, 3, 4,
-    3, 4, 5,
-    4, 5, 6,
-    5, 6, 7,
-  ]);
-  */
-
   for (var i = 0; i < vertexAttributes.length; i += 8) {
     var msg = "";
     for (var j = 0; j < 8; j++) {
@@ -392,6 +359,7 @@ function loadObjMesh(text) {
     }
     console.log(msg);
   }
+  */
 
   // Create a WebGL buffer and upload our vertex attributes to the GPU
   var vertexAttributesBuffer = gl.createBuffer();
@@ -410,4 +378,87 @@ function loadObjMesh(text) {
   };
 
   return result;
+}
+
+
+//------------------------------------------------------------
+// Prototype for mesh objects
+//------------------------------------------------------------
+var MeshObject = function(meshAsset, shaderAsset) {
+  this.mesh = assets[meshAsset];
+  this.shaderProgram = assets[shaderAsset];
+};
+MeshObject.prototype.useShaderProgram = function() {
+  gl.useProgram(this.shaderProgram);
+}
+MeshObject.prototype.prepareVertexBuffers = function() {
+  // NOTE: WebGL does not support VBO's, so we must prepare the vertex buffers
+  // ourselves every frame
+  for (var attribute in this.shaderProgram.attributes) {
+    var attributeLocation = this.shaderProgram.attributes[attribute];
+    if (attributeLocation >= 0)  // Ignore unused attributes
+      // Enable all of the vertex attributes we are using
+      // NOTE: We should disable these vertex attributes later, but WebGL does
+      // not actually require us to do this
+      gl.enableVertexAttribArray(attributeLocation);
+  }
+  // Bind our buffers to the WebGL state
+  gl.bindBuffer(gl.ARRAY_BUFFER, this.mesh.attributesBuffer);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.mesh.indicesBuffer);
+  // Configure the vertex attributes for position/uv/normal verticies
+  gl.vertexAttribPointer(this.shaderProgram.attributes.vertexPosition,
+                         3,         // vec3
+                         gl.FLOAT,  // 32bit floating point
+                         false,     // Don't normalize values
+                         4 * 8,     // Stride for eight 32-bit values per-vertex
+                         4 * 0);    // Position starts at the first value stored
+  gl.vertexAttribPointer(this.shaderProgram.attributes.vertexUV,
+                         2,         // vec2
+                         gl.FLOAT,  // 32bit floating point
+                         false,     // Don't normalize values
+                         4 * 8,     // Stride for eight 32-bit values per-vertex
+                         4 * 3);    // UV starts at the fourth value stored
+  gl.vertexAttribPointer(this.shaderProgram.attributes.vertexNormal,
+                         3,         // vec3
+                         gl.FLOAT,  // 32bit floating point
+                         false,     // Don't normalize values
+                         4 * 8,     // Stride for eight 32-bit values per-vertex
+                         4 * 5);    // Normal starts at the sixth value stored
+}
+MeshObject.prototype.setMatrixUniforms = function() {
+  // TODO: Pass the model-view matrix and the projection matrix from the camera
+  gl.uniformMatrix4fv(this.shaderProgram.uniforms.modelViewMatrix, false, flatten(modelViewMatrix));
+  gl.uniformMatrix4fv(this.shaderProgram.uniforms.projectionMatrix, false, flatten(projectionMatrix));
+}
+MeshObject.prototype.drawElements = function() {
+  gl.drawElements(gl.TRIANGLES, this.mesh.numIndices, gl.UNSIGNED_SHORT, 0);
+}
+MeshObject.prototype.draw = function() {  // TODO: Take the camera as an argument
+  // Breaking the draw method up into subroutines facilitates some flexibility
+  // in the implementation of objects derived from MeshObject
+  this.useShaderProgram();
+  this.prepareVertexBuffers();
+  this.setMatrixUniforms();
+  this.drawElements();
+}
+
+//------------------------------------------------------------
+// Prototype for billiard ball objects
+//------------------------------------------------------------
+var BilliardBall = function(number) {
+  // Iherit from mesh object
+  MeshObject.call(this, "common/billiard_ball.obj", "billiardball");
+
+  // Initial physical properties
+  this.position = vec2(0.0, 0.0);
+  this.velocity = vec2(0.0, 0.0);
+  this.radius = 1.0;
+  // TODO: 
+  // TODO: Determine the textures that need 
+};
+BilliardBall.prototype = Object.create(MeshObject.prototype);
+BilliardBall.prototype.constructor = BilliardBall;
+BilliardBall.prototype.tick = function(dt) {
+  // position += velocity * dt
+  this.position = add(this.position, scale(dt, this.velocity));
 }
