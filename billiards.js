@@ -6,7 +6,7 @@ var gl;
 function animate() {
   // TODO: compute elapsed time from last render and update the balls'
   // positions and velocities accordingly.
-  modelViewMatrix = mult(rotate(5, vec3(0.0, 1.0, 0.0)), modelViewMatrix);
+  modelViewMatrix = mult(rotate(0.1, vec3(1.0, 1.0, 0.0)), modelViewMatrix);
 }
 
 function tick() {
@@ -49,7 +49,7 @@ window.onload = function init() {
   // Configure WebGL
   //----------------------------------------
   gl.viewport(0, 0, canvasWidth, canvasHeight);
-  gl.clearColor(0.0, 0.0, 0.0, 1.0);
+  gl.clearColor(0.7, 0.7, 0.7, 1.0);
   gl.enable(gl.DEPTH_TEST);
 
   //----------------------------------------
@@ -81,7 +81,7 @@ function startGame() {
   //----------------------------------------
   // TODO: Create game objects
   //----------------------------------------
-  testBilliardBall = new BilliardBall(9);
+  testBilliardBall = new BilliardBall(10);
 
   // Start the asynchronous game loop
   tick();
@@ -89,9 +89,12 @@ function startGame() {
 
 var geometryAssets = [ "common/billiard_ball.obj" ];
 var textureAssets = [ "common/billiard_ball_10.png" ];
-var shaderAssets = [ { name: "billiardball", vert: "billiardball-vert", frag: "billiardball-frag" } ];
+var shaderAssets = [ { name: "billiardball", vert: "billiardball-vert", frag: "billiardball-frag",
+                       attributes: { vertexPosition: -1, vertexUV: -1, vertexNormal: -1 },
+                       uniforms: { modelViewMatrix: null, projectionMatrix: null } } ];
 var assetIndex = 0;
 var assetHandle = null;
+var textureImage = null;
 var assets = {};
 function loadAssets() {
   var i = assetIndex;
@@ -135,12 +138,25 @@ function loadAssets() {
     // Get shader uniform locations
     shaderProgram.uniforms = {
       modelViewMatrix: gl.getUniformLocation(shaderProgram, "modelViewMatrix"),
-      projectionMatrix: gl.getUniformLocation(shaderProgram, "projectionMatrix")
+      projectionMatrix: gl.getUniformLocation(shaderProgram, "projectionMatrix"),
+      textureSampler: gl.getUniformLocation(shaderProgram, "textureSampler")
     };
     assets[shaderAssets[i].name] = shaderProgram;
     assetIndex += 1;
+  } else if (assetArray === textureAssets) {
+    // Load textures using Image() objects
+    var imageFile = assetArray[i];
+    if (textureImage == null) {
+      textureImage = new Image();
+      textureImage.onload = function() {
+        assets[imageFile] = loadTexture(textureImage);
+        assetIndex += 1;
+        textureImage = null;
+      };
+      textureImage.src = imageFile;
+    }
   } else {
-    // Load the asset via asynchronous Ajax
+    // Load all other assets via asynchronous Ajax
     var assetFile = assetArray[i];
     if (assetHandle == null) {
       assetHandle = loadFileAjax(assetFile);
@@ -153,6 +169,8 @@ function loadAssets() {
           assets[assetFile] = loadObjMesh(assetHandle.text);
         } else if (assetArray === textureAssets) {
           // TODO: Load the texture into WebGL
+          // TODO: Load the texture with Image().onload instead, instead of ajax (ugh). See: https://developer.mozilla.org/en/docs/Web/API/WebGL_API/Tutorial/Using_textures_in_WebGL
+          assets[assetFile] = loadTexture(assetHandle.text);
         }
       } else {
         // TODO: Make a better error message
@@ -188,10 +206,6 @@ function loadFileAjax(path) {
   }
   client.send();
   return handle;
-}
-
-function loadGeometry() {
-  // TODO: Display progress to the user
 }
 
 //------------------------------------------------------------
@@ -380,12 +394,35 @@ function loadObjMesh(text) {
   return result;
 }
 
+function loadTexture(image) {
+  var texture = gl.createTexture();
+
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+
+  /*
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  */
+  // FIXME: Get mipmap working (i.e. make texture dimensions a power of 2)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.MIRRORED_REPEAT);  // FIXME: Move this wrap assumption out of here
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.MIRRORED_REPEAT);  // FIXME: Move this wrap assumption out of here
+  gl.generateMipmap(gl.TEXTURE_2D);
+  gl.bindTexture(gl.TEXTURE_2D, null);
+
+  return texture;
+}
+
 
 //------------------------------------------------------------
 // Prototype for mesh objects
 //------------------------------------------------------------
-var MeshObject = function(meshAsset, shaderAsset) {
+var MeshObject = function(meshAsset, textureAsset, shaderAsset) {
   this.mesh = assets[meshAsset];
+  this.texture = assets[textureAsset];
   this.shaderProgram = assets[shaderAsset];
 };
 MeshObject.prototype.useShaderProgram = function() {
@@ -412,18 +449,20 @@ MeshObject.prototype.prepareVertexBuffers = function() {
                          false,     // Don't normalize values
                          4 * 8,     // Stride for eight 32-bit values per-vertex
                          4 * 0);    // Position starts at the first value stored
-  gl.vertexAttribPointer(this.shaderProgram.attributes.vertexUV,
-                         2,         // vec2
-                         gl.FLOAT,  // 32bit floating point
-                         false,     // Don't normalize values
-                         4 * 8,     // Stride for eight 32-bit values per-vertex
-                         4 * 3);    // UV starts at the fourth value stored
-  gl.vertexAttribPointer(this.shaderProgram.attributes.vertexNormal,
-                         3,         // vec3
-                         gl.FLOAT,  // 32bit floating point
-                         false,     // Don't normalize values
-                         4 * 8,     // Stride for eight 32-bit values per-vertex
-                         4 * 5);    // Normal starts at the sixth value stored
+  if (this.shaderProgram.attributes.vertexUV >= 0)
+    gl.vertexAttribPointer(this.shaderProgram.attributes.vertexUV,
+                           2,         // vec2
+                           gl.FLOAT,  // 32bit floating point
+                           false,     // Don't normalize values
+                           4 * 8,     // Stride for eight 32-bit values per-vertex
+                           4 * 3);    // UV starts at the fourth value stored
+  if (this.shaderProgram.attributes.vertexNormal >= 0)
+    gl.vertexAttribPointer(this.shaderProgram.attributes.vertexNormal,
+                           3,         // vec3
+                           gl.FLOAT,  // 32bit floating point
+                           false,     // Don't normalize values
+                           4 * 8,     // Stride for eight 32-bit values per-vertex
+                           4 * 5);    // Normal starts at the sixth value stored
 }
 MeshObject.prototype.setMatrixUniforms = function() {
   // TODO: Pass the model-view matrix and the projection matrix from the camera
@@ -433,12 +472,18 @@ MeshObject.prototype.setMatrixUniforms = function() {
 MeshObject.prototype.drawElements = function() {
   gl.drawElements(gl.TRIANGLES, this.mesh.numIndices, gl.UNSIGNED_SHORT, 0);
 }
+MeshObject.prototype.bindTextures = function() {
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, this.texture);
+  gl.uniform1i(this.shaderProgram.uniforms.textureSampler, 0);
+}
 MeshObject.prototype.draw = function() {  // TODO: Take the camera as an argument
   // Breaking the draw method up into subroutines facilitates some flexibility
   // in the implementation of objects derived from MeshObject
   this.useShaderProgram();
   this.prepareVertexBuffers();
   this.setMatrixUniforms();
+  this.bindTextures();
   this.drawElements();
 }
 
@@ -446,8 +491,76 @@ MeshObject.prototype.draw = function() {  // TODO: Take the camera as an argumen
 // Prototype for billiard ball objects
 //------------------------------------------------------------
 var BilliardBall = function(number) {
+  var textureFile;
+  switch (number) {
+    case 0:
+      // White
+      textureFile = "common/cue_ball.png";
+      break;
+    case 1:
+      // Yellow solid
+      textureFile = "common/billiard_ball_1.png";
+      break;
+    case 2:
+      // Blue solid
+      textureFile = "common/billiard_ball_2.png";
+      break;
+    case 3:
+      // Red solid
+      textureFile = "common/billiard_ball_3.png";
+      break;
+    case 4:
+      // Purple solid
+      textureFile = "common/billiard_ball_4.png";
+      break;
+    case 5:
+      // Orange solid
+      textureFile = "common/billiard_ball_5.png";
+      break;
+    case 6:
+      // Green solid
+      textureFile = "common/billiard_ball_6.png";
+      break;
+    case 7:
+      // Brown or maroon solid
+      textureFile = "common/billiard_ball_7.png";
+      break;
+    case 8:
+      // Black solid
+      textureFile = "common/billiard_ball_8.png";
+      break;
+    case 9:
+      // Yellow stripe
+      textureFile = "common/billiard_ball_9.png";
+      break;
+    case 10:
+      // Blue stripe
+      textureFile = "common/billiard_ball_10.png";
+      break;
+    case 11:
+      // Red stripe
+      textureFile = "common/billiard_ball_11.png";
+      break;
+    case 12:
+      // Purple stripe
+      textureFile = "common/billiard_ball_12.png";
+      break;
+    case 13:
+      // Orange stripe
+      textureFile = "common/billiard_ball_13.png";
+      break;
+    case 14:
+      // Green stripe
+      textureFile = "common/billiard_ball_14.png";
+      break;
+    case 15:
+      // Brown or maroon stripe
+      textureFile = "common/billiard_ball_15.png";
+      break;
+  }
+
   // Iherit from mesh object
-  MeshObject.call(this, "common/billiard_ball.obj", "billiardball");
+  MeshObject.call(this, "common/billiard_ball.obj", textureFile, "billiardball");
 
   // Initial physical properties
   this.position = vec2(0.0, 0.0);

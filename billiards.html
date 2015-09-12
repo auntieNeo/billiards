@@ -19,7 +19,7 @@
       uniform mat4 modelViewMatrix;
       uniform mat4 projectionMatrix;
       
-      varying vec2 uv;
+      varying highp vec2 uv;
       varying vec3 normal;
       
       void main(void) {
@@ -31,11 +31,15 @@
     <script id="billiardball-frag" type="x-shader/x-fragment">
       precision mediump float;
 
-      varying vec2 uv;
+      varying highp vec2 uv;  // FIXME: rename this to textureCoord
       varying vec3 normal;
 
+      uniform sampler2D textureSampler;
+
       void main(void) {
-        gl_FragColor = vec4(uv, normal.x, 1.0);
+//        gl_FragColor = vec4(uv, normal.x, 1.0);
+//        gl_FragColor = vec4(uv.s, uv.t, 0.0, 1.0);
+        gl_FragColor = texture2D(textureSampler, vec2(uv.s, -uv.t));
       }
     </script>
 
