@@ -11,6 +11,35 @@
     <script type="text/javascript" src="common/webgl-utils.js"></script>
     <script type="text/javascript" src="common/initShaders.js"></script>
 
+    <script id="billiardball-vert" type="x-shader/x-vertex">
+      attribute vec3 vertexPosition;
+//      attribute vec2 vertexUV;
+//      attribute vec3 vertexNormal;
+      
+      uniform mat4 modelViewMatrix;
+      uniform mat4 projectionMatrix;
+      
+//      varying vec2 uv;
+//      varying vec3 normal;
+      
+      void main(void) {
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);
+//        gl_Position = vec4(vertexPosition, 1.0);
+//        uv = vertexUV;
+//        normal = vertexNormal;
+      }
+    </script>
+    <script id="billiardball-frag" type="x-shader/x-fragment">
+      precision mediump float;
+
+//      varying vec2 uv;
+//      varying vec3 normal;
+
+      void main(void) {
+        gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);
+      }
+    </script>
+
     <!------------------------------------------------------------>
     <!-- This is the file you will modify -->
     <!------------------------------------------------------------>
