@@ -44,20 +44,19 @@ function render() {
                          false,     // Don't normalize values
                          4 * 8,     // Stride for eight 32-bit values per-vertex
                          4 * 0);    // Position starts at the first value stored
-/*  gl.vertexAttribPointer(uvAttribute,
-                         3,         // vec3
+  gl.vertexAttribPointer(uvAttribute,
+                         2,         // vec2
                          gl.FLOAT,  // 32bit floating point
                          false,     // Don't normalize values
-                         8 * 4,     // Stride for eight 32-bit values per-vertex
+                         4 * 8,     // Stride for eight 32-bit values per-vertex
                          4 * 3);    // UV starts at the fourth value stored
   gl.vertexAttribPointer(normalAttribute,
                          3,         // vec3
                          gl.FLOAT,  // 32bit floating point
                          false,     // Don't normalize values
-                         8 * 4,     // Stride for eight 32-bit values per-vertex
+                         4 * 8,     // Stride for eight 32-bit values per-vertex
                          4 * 5);    // Normal starts at the sixth value stored
-                         */
-//  modelViewMatrix = mult(rotate(0.5, vec3(0.0, 1.0, 0.0)), modelViewMatrix);
+  modelViewMatrix = mult(rotate(5, vec3(0.0, 1.0, 0.0)), modelViewMatrix);
   gl.uniformMatrix4fv(billiardBall_shaderProgram.modelViewMatrixUniform, false, flatten(modelViewMatrix));
   gl.uniformMatrix4fv(billiardBall_shaderProgram.projectionMatrixUniform, false, flatten(projectionMatrix));
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, billiardBall.indicesBuffer);
@@ -97,17 +96,11 @@ window.onload = function init() {
     window.alert("Failed to init shaders.");
   }
   positionAttribute = gl.getAttribLocation(billiardBall_shaderProgram, "vertexPosition");
-//  window.alert("vertexPosition index: " + positionAttribute);
   gl.enableVertexAttribArray(positionAttribute);
-
-  /*
-  uvAttribute = gl.getAttribLocation(billiardBall_shaderProgram, "thisIsuv");
-  window.alert("vertexUV index: " + uvAttribute);
+  uvAttribute = gl.getAttribLocation(billiardBall_shaderProgram, "vertexUV");
   gl.enableVertexAttribArray(uvAttribute);
   normalAttribute = gl.getAttribLocation(billiardBall_shaderProgram, "vertexNormal");
-  window.alert("vertexNormal index: " + normalAttribute);
   gl.enableVertexAttribArray(normalAttribute);
-  */
   billiardBall_shaderProgram.modelViewMatrixUniform = gl.getUniformLocation(billiardBall_shaderProgram, "modelViewMatrix");
   billiardBall_shaderProgram.projectionMatrixUniform = gl.getUniformLocation(billiardBall_shaderProgram, "projectionMatrix");
   // TODO: Move the matrix initialization somewhere else
@@ -115,7 +108,8 @@ window.onload = function init() {
 //  projectionMatrix = ortho(-100, 100, -100, 100, 1, -1);
 //  modelViewMatrix = mult(scalem(0.1, 0.1, 0.1), translate(0, 0, 50));
 //  projectionMatrix = scalem(1.0, 1.0, 1.0);
-  modelViewMatrix = translate(0, 0, 50);
+//  modelViewMatrix = translate(0, 0, 50);
+  modelViewMatrix = scalem(1.0, 1.0, 1.0);
   gl.lineWidth(0.5);
 
   //----------------------------------------
