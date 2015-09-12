@@ -3,21 +3,39 @@
 //------------------------------------------------------------
 var gl;
 
-function animate() {
-  // TODO: compute elapsed time from last render and update the balls'
-  // positions and velocities accordingly.
-  modelViewMatrix = mult(rotate(0.5, vec3(0.0, 1.0, 0.0)), modelViewMatrix);
+// Various billiards dimensions in meters
+/*
+// Nine-foot table
+var TABLE_LENGTH = 254.0E-2;  // 254cm
+var TABLE_WIDTH = 127.0E-2;  // 127cm
+*/
+// Eight-foot table
+var TABLE_LENGTH = 234.0E-2;  // 234cm
+var TABLE_WIDTH = 117.0E-2;  // 117cm
+// American-style ball
+var BALL_DIAMETER = 57.15E-3;  // 57.15mm
+var BALL_RADIUS = BALL_DIAMETER / 2;
+
+function animate(dt) {
+  // Compute the new positions of the balls on the table
+  billiardTable.tick(dt);
 }
 
+var lastTime;
 function tick() {
+  // Determine the time elapsed
+  if (typeof lastTime == 'undefined')
+    lastTime = Date.now();
+  var dt = Date.now() - lastTime;
+  lastTime = Date.now();
+
   requestAnimFrame(tick);
   render();
-  animate();
+  animate(dt);
 }
 
 // FIXME: Need to move these somewhere
 var projectionMatrix;
-var modelViewMatrix;
 
 // TODO: Put this inside some sort of game state object
 var billiardTable;
@@ -49,7 +67,7 @@ window.onload = function init() {
   // Configure WebGL
   //----------------------------------------
   gl.viewport(0, 0, canvasWidth, canvasHeight);
-  gl.clearColor(0.7, 0.7, 0.7, 1.0);
+  gl.clearColor(0.180, 0.505, 0.074, 1.0);
   gl.enable(gl.DEPTH_TEST);
 
   //----------------------------------------
@@ -57,7 +75,7 @@ window.onload = function init() {
   // buffers
   //----------------------------------------
   // TODO: Move the matrix initialization somewhere else
-  projectionMatrix = ortho(-2, 2, -2, 2, -10000, 10000);
+  projectionMatrix = ortho(-TABLE_LENGTH/2, TABLE_LENGTH/2, -TABLE_WIDTH/2, TABLE_WIDTH/2, -10000, 10000);
 //  projectionMatrix = ortho(-100, 100, -100, 100, 1, -1);
 //  modelViewMatrix = mult(scalem(0.1, 0.1, 0.1), translate(0, 0, 50));
 //  projectionMatrix = scalem(1.0, 1.0, 1.0);
@@ -88,7 +106,24 @@ function startGame() {
 }
 
 var geometryAssets = [ "common/billiard_ball.obj" ];
-var textureAssets = [ "common/billiard_ball_10.png" ];
+var textureAssets = [
+  "common/cue_ball.png",
+  "common/billiard_ball_1.png",
+  "common/billiard_ball_2.png",
+  "common/billiard_ball_3.png",
+  "common/billiard_ball_4.png",
+  "common/billiard_ball_5.png",
+  "common/billiard_ball_6.png",
+  "common/billiard_ball_7.png",
+  "common/billiard_ball_8.png",
+  "common/billiard_ball_9.png",
+  "common/billiard_ball_10.png",
+  "common/billiard_ball_11.png",
+  "common/billiard_ball_12.png",
+  "common/billiard_ball_13.png",
+  "common/billiard_ball_14.png",
+  "common/billiard_ball_15.png"
+];
 var shaderAssets = [ { name: "billiardball", vert: "billiardball-vert", frag: "billiardball-frag",
                        attributes: { vertexPosition: -1, vertexUV: -1, vertexNormal: -1 },
                        uniforms: { modelViewMatrix: null, projectionMatrix: null } } ];
@@ -145,6 +180,7 @@ function loadAssets() {
     assetIndex += 1;
   } else if (assetArray === textureAssets) {
     // Load textures using Image() objects
+    // FIXME: Need an error dialog when images can't be loaded
     var imageFile = assetArray[i];
     if (textureImage == null) {
       textureImage = new Image();
@@ -313,9 +349,7 @@ function loadObjMesh(text) {
               // face, especially along seams. We simply duplicate these verticies
               // in the representation we send to WebGL. The difficulty with these
               // verticies is that we must re-index some of the faces.
-              window.alert("Error: Conflicting texture coordinate in mesh! ("
-                  + mesh.verticies[positionIndex].uv[0] + "," + mesh.verticies[positionIndex].uv[1] + ") != ("
-                  + mesh.uv[uvIndex][0] + "," + mesh.uv[uvIndex][1] + ")");
+
               // Look for identical verticies that we may have already re-indexed
               // FIXME: Indexing a map by arbitrary objects in Javascript is
               // not trivial, so I'm using a linear search here for now.
@@ -594,7 +628,7 @@ var BilliardBall = function(number) {
 
   // Initial physical properties
   this.position = vec2(0.0, 0.0);
-  this.velocity = vec2(0.0, 0.0);
+  this.velocity = vec2(-0.0001, -0.0001);
   this.radius = 1.0;
   // TODO: 
   // TODO: Determine the textures that need 
@@ -603,6 +637,12 @@ BilliardBall.prototype = Object.create(MeshObject.prototype);
 BilliardBall.prototype.constructor = BilliardBall;
 BilliardBall.prototype.draw = function(gl) {
   this.modelViewMatrix = scalem(1.0, 1.0, 1.0);
+  // Rotate the ball
+  if (typeof this.rotation == 'undefined')
+    this.rotation = 0;
+  this.rotation += 1;
+  // TODO: Get quaternion rotation working
+  this.modelViewMatrix = mult(rotate(this.rotation, vec3(1.0, 1.0, 0.0)), this.modelViewMatrix);
   // Translate the ball into its position
   this.modelViewMatrix = mult(translate(this.position[0], this.position[1], 0.0), this.modelViewMatrix);
   // TODO: Translate the ball in front of the camera (with the world-view matrix)
@@ -631,12 +671,19 @@ var BilliardTable = function() {
 }
 BilliardTable.prototype.draw = function(gl) {
   // TODO: Transform table to its position
-  for (var i = 0; i < 15; ++i) {
+  // FIXME: Don't draw balls that have already been pocketed
+  for (var i = 0; i <= 15; ++i) {
     this.balls[i].draw(gl);
   }
   // TODO: Transform balls to one ball-radius away from the table surface
 }
-BilliardTable.prototype.tick = function() {
+BilliardTable.prototype.tick = function(dt) {
+  // TODO: Advance all balls by their velocities
+  // FIXME: Don't loop through balls that have already been pocketed
+  for (var i = 0; i <= 15; ++i) {
+    this.balls[i].tick(dt);
+  }
+
   // TODO: Simulate the physics of billiards in 2D
   // TODO: Determine ball-ball collisions
   // TODO: Determine ball-wall collisions
