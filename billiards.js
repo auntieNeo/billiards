@@ -6,7 +6,7 @@ var gl;
 function animate() {
   // TODO: compute elapsed time from last render and update the balls'
   // positions and velocities accordingly.
-  modelViewMatrix = mult(rotate(0.5, vec3(1.0, 1.0, 0.0)), modelViewMatrix);
+  modelViewMatrix = mult(rotate(0.5, vec3(0.0, 1.0, 0.0)), modelViewMatrix);
 }
 
 function tick() {
@@ -19,8 +19,8 @@ function tick() {
 var projectionMatrix;
 var modelViewMatrix;
 
-// TODO: Replace this with a global game state of some sort
-var testBilliardBall;
+// TODO: Put this inside some sort of game state object
+var billiardTable;
 
 
 //------------------------------------------------------------
@@ -29,7 +29,7 @@ var testBilliardBall;
 function render() {
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-  testBilliardBall.draw();
+  billiardTable.draw(gl);
 }
 
 //------------------------------------------------------------
@@ -81,7 +81,7 @@ function startGame() {
   //----------------------------------------
   // TODO: Create game objects
   //----------------------------------------
-  testBilliardBall = new BilliardBall(10);
+  billiardTable = new BilliardTable();
 
   // Start the asynchronous game loop
   tick();
@@ -305,8 +305,8 @@ function loadObjMesh(text) {
           var vertexIndex = positionIndex;
           // Check for conflicting indices that Blender might have exported
           // (e.g. texture coordinate seams or cusps in the surface normals)
-          // FIXME: We could check for uv AND normals here in one go, but
-          // Javascript object comparison kind of sucks.
+          // FIXME: We could check for texture coordinates AND normals here in
+          // one go, but Javascript object comparison kind of sucks.
           if ((typeof mesh.verticies[vertexIndex] != 'undefined')
               && (mesh.verticies[vertexIndex].uv != vertex.uv)) {
               // NOTE: Some verticies have different texture coordinates for each
@@ -333,10 +333,6 @@ function loadObjMesh(text) {
                 vertexIndex = mesh.positions.length + (reIndexedVerticies.length - 1);
               }
           }
-          /*
-          if (mesh.verticies[positionIndex].normal === mesh.normals[normalIndex])
-            window.alert("Error: Conflicting surface normal in mesh!");
-            */
           // Copy values into the verticies array (for easy access when we
           // build an array for OpenGL later)
           mesh.verticies[vertexIndex] = vertex;
@@ -458,19 +454,20 @@ var MeshObject = function(meshAsset, textureAsset, shaderAsset) {
   this.texture = assets[textureAsset];
   this.shaderProgram = assets[shaderAsset];
 };
-MeshObject.prototype.useShaderProgram = function() {
+MeshObject.prototype.useShaderProgram = function(gl) {
   gl.useProgram(this.shaderProgram);
 }
-MeshObject.prototype.prepareVertexBuffers = function() {
+MeshObject.prototype.prepareVertexBuffers = function(gl) {
   // NOTE: WebGL does not support VBO's, so we must prepare the vertex buffers
   // ourselves every frame
   for (var attribute in this.shaderProgram.attributes) {
     var attributeLocation = this.shaderProgram.attributes[attribute];
-    if (attributeLocation >= 0)  // Ignore unused attributes
+    if (attributeLocation >= 0) {  // Ignore unused attributes
       // Enable all of the vertex attributes we are using
       // NOTE: We should disable these vertex attributes later, but WebGL does
       // not actually require us to do this
       gl.enableVertexAttribArray(attributeLocation);
+    }
   }
   // Bind our buffers to the WebGL state
   gl.bindBuffer(gl.ARRAY_BUFFER, this.mesh.attributesBuffer);
@@ -497,27 +494,27 @@ MeshObject.prototype.prepareVertexBuffers = function() {
                            4 * 8,     // Stride for eight 32-bit values per-vertex
                            4 * 5);    // Normal starts at the sixth value stored
 }
-MeshObject.prototype.setMatrixUniforms = function() {
+MeshObject.prototype.setMatrixUniforms = function(gl) {
   // TODO: Pass the model-view matrix and the projection matrix from the camera
-  gl.uniformMatrix4fv(this.shaderProgram.uniforms.modelViewMatrix, false, flatten(modelViewMatrix));
+  gl.uniformMatrix4fv(this.shaderProgram.uniforms.modelViewMatrix, false, flatten(this.modelViewMatrix));
   gl.uniformMatrix4fv(this.shaderProgram.uniforms.projectionMatrix, false, flatten(projectionMatrix));
 }
-MeshObject.prototype.drawElements = function() {
+MeshObject.prototype.drawElements = function(gl) {
   gl.drawElements(gl.TRIANGLES, this.mesh.numIndices, gl.UNSIGNED_SHORT, 0);
 }
-MeshObject.prototype.bindTextures = function() {
+MeshObject.prototype.bindTextures = function(gl) {
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, this.texture);
   gl.uniform1i(this.shaderProgram.uniforms.textureSampler, 0);
 }
-MeshObject.prototype.draw = function() {  // TODO: Take the camera as an argument
+MeshObject.prototype.draw = function(gl) {  // TODO: Take the camera as an argument
   // Breaking the draw method up into subroutines facilitates some flexibility
   // in the implementation of objects derived from MeshObject
-  this.useShaderProgram();
-  this.prepareVertexBuffers();
-  this.setMatrixUniforms();
-  this.bindTextures();
-  this.drawElements();
+  this.useShaderProgram(gl);
+  this.prepareVertexBuffers(gl);
+  this.setMatrixUniforms(gl);
+  this.bindTextures(gl);
+  this.drawElements(gl);
 }
 
 //------------------------------------------------------------
@@ -604,7 +601,50 @@ var BilliardBall = function(number) {
 };
 BilliardBall.prototype = Object.create(MeshObject.prototype);
 BilliardBall.prototype.constructor = BilliardBall;
+BilliardBall.prototype.draw = function(gl) {
+  this.modelViewMatrix = scalem(1.0, 1.0, 1.0);
+  // Translate the ball into its position
+  this.modelViewMatrix = mult(translate(this.position[0], this.position[1], 0.0), this.modelViewMatrix);
+  // TODO: Translate the ball in front of the camera (with the world-view matrix)
+
+  MeshObject.prototype.draw.call(this, gl);
+}
 BilliardBall.prototype.tick = function(dt) {
   // position += velocity * dt
   this.position = add(this.position, scale(dt, this.velocity));
+}
+
+//------------------------------------------------------------
+// Prototype for billiard tables
+//------------------------------------------------------------
+var BilliardTable = function() {
+  this.balls = [];
+  for (var i = 0; i <= 15; ++i) {
+    this.balls.push(new BilliardBall(i));
+  }
+
+  // TODO: Arrange balls in a billiards pattern
+  var offset = vec2(0.1, 0.1);
+  for (var i = 0; i <= 15; ++i) {
+    this.balls[i].position = add(this.balls[i].position, scale(i, offset));
+  }
+}
+BilliardTable.prototype.draw = function(gl) {
+  // TODO: Transform table to its position
+  for (var i = 0; i < 15; ++i) {
+    this.balls[i].draw(gl);
+  }
+  // TODO: Transform balls to one ball-radius away from the table surface
+}
+BilliardTable.prototype.tick = function() {
+  // TODO: Simulate the physics of billiards in 2D
+  // TODO: Determine ball-ball collisions
+  // TODO: Determine ball-wall collisions
+  // TODO: Determine ball-hole collisions
+}
+
+//------------------------------------------------------------
+// Prototype for cameras
+//------------------------------------------------------------
+var Camera = function() {
 }
