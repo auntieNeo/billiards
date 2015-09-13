@@ -25,6 +25,7 @@ var BALL_CLOTH_ROLLING_RESISTANCE_ACCELERATION =
     BALL_CLOTH_COEFFICIENT_OF_ROLLING_RESISTANCE * GRAVITY_ACCELERATION;
 var CUE_BALL_MASS = 0.17;  // kg
 var NUMBERED_BALL_MASS = 0.16;  // kg
+var NUMBER_OF_BALLS = 15;
 
 function animate(dt) {
   // Compute the new positions of the balls on the table
@@ -731,6 +732,7 @@ BilliardTable.prototype.tick = function(dt) {
   // running time of O(n) for nearly-sorted lists such as these. Maybe
   // Javascript's quicksort implementation is faster (because it would be
   // implemented in C), but I haven't tried it.
+  var xCollisions = [];
   this.xBalls.sort(function(a, b) {
     return a.position[0] - b.position[0];
   });
@@ -741,7 +743,15 @@ BilliardTable.prototype.tick = function(dt) {
       if (this.xBalls[i].position[0] - this.xBalls[j].position[0] >= BALL_DIAMETER)
         break;
       // Potential collision between xBalls[i] and xBalls[j]
-//      window.alert("X-axis collision between " + this.xBalls[i].number + " and " + this.xBalls[j].number + " distance: " + (this.xBalls[i].position[0] - this.xBalls[j].position[0]));
+      var lesserNumber = this.xBalls[j].number;
+      var greaterNumber;
+      if (this.xBalls[i].number < lesserNumber) {
+        greaterNumber = lesserNumber;
+        lesserNumber = this.xBalls[i].number;
+      } else {
+        greaterNumber = this.xBalls[i].number;
+      }
+      xCollisions[lesserNumber + greaterNumber * NUMBER_OF_BALLS] = true;
     }
   }
   this.yBalls.sort(function(a, b) {
@@ -754,7 +764,17 @@ BilliardTable.prototype.tick = function(dt) {
       if (this.yBalls[i].position[1] - this.yBalls[j].position[1] >= BALL_DIAMETER)
         break;
       // Potential collision between yBalls[i] and yBalls[j]
-//      window.alert("Y-axis collision between " + this.yBalls[i].number + " and " + this.yBalls[j].number + " distance: " + (this.yBalls[i].position[1] - this.yBalls[j].position[1]));
+      var lesserNumber = this.yBalls[j].number;
+      var greaterNumber;
+      if (this.yBalls[i].number < lesserNumber) {
+        greaterNumber = lesserNumber;
+        lesserNumber = this.yBalls[i].number;
+      } else {
+        greaterNumber = this.yBalls[i].number;
+      }
+      if (typeof xCollisions[lesserNumber + greaterNumber * NUMBER_OF_BALLS] != 'undefined') {
+        window.alert("Broad-phase collision between " + lesserNumber + " and " + greaterNumber + " distance: " + (this.yBalls[i].position[0] - this.yBalls[j].position[0]));
+      }
     }
   }
 
