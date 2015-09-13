@@ -697,7 +697,7 @@ var BilliardTable = function() {
   }
 
   // TODO: Arrange balls in a billiards pattern
-  var offset = vec2(0.05, 0.1);
+  var offset = vec2(0.05, 0.05);
   for (var i = 0; i <= 15; ++i) {
     this.balls[i].position = add(this.balls[i].position, scale(i, offset));
   }
@@ -734,6 +734,7 @@ BilliardTable.prototype.tick = function(dt) {
   this.xBalls.sort(function(a, b) {
     return a.position[0] - b.position[0];
   });
+  // Iterate forwards (positive-x direction) through all balls
   for (var i = 1; i < this.xBalls.length; ++i) {
     // Search backwards (negative-x direction) for collisions
     for (var j = i - 1; j >= 0; --j) {
@@ -742,12 +743,18 @@ BilliardTable.prototype.tick = function(dt) {
       // Potential collision between xBalls[i] and xBalls[j]
 //      window.alert("X-axis collision between " + this.xBalls[i].number + " and " + this.xBalls[j].number + " distance: " + (this.xBalls[i].position[0] - this.xBalls[j].position[0]));
     }
-    // Search forwards (positive-x direction) for collisions
-    for (var j = i + 1; j < this.xBalls.length; ++j) {
-      if (this.xBalls[j].position[0] - this.xBalls[i].position[0] >= BALL_DIAMETER)
+  }
+  this.yBalls.sort(function(a, b) {
+    return a.position[1] - b.position[1];
+  });
+  // Iterate forwards (positive-y direction) through all balls
+  for (var i = 1; i < this.yBalls.length; ++i) {
+    // Search backwards (negative-y direction) for collisions
+    for (var j = i - 1; j >= 0; --j) {
+      if (this.yBalls[i].position[1] - this.yBalls[j].position[1] >= BALL_DIAMETER)
         break;
-      // Potential collision between xBalls[i] and xBalls[j]
-//      window.alert("X-axis collision between " + this.xBalls[i].number + " and " + this.xBalls[j].number + " distance: " + (this.xBalls[j].position[0] - this.xBalls[i].position[0]));
+      // Potential collision between yBalls[i] and yBalls[j]
+//      window.alert("Y-axis collision between " + this.yBalls[i].number + " and " + this.yBalls[j].number + " distance: " + (this.yBalls[i].position[1] - this.yBalls[j].position[1]));
     }
   }
 
