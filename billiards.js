@@ -25,7 +25,12 @@ var BALL_CLOTH_ROLLING_RESISTANCE_ACCELERATION =
     BALL_CLOTH_COEFFICIENT_OF_ROLLING_RESISTANCE * GRAVITY_ACCELERATION;
 var CUE_BALL_MASS = 0.17;  // kg
 var NUMBERED_BALL_MASS = 0.16;  // kg
+
+// Gameplay constants
 var NUMBER_OF_BALLS = 15;
+
+// Animation constants
+var MAX_DT = 0.01;  // Arbitrary s
 
 function animate(dt) {
   // Compute the new positions of the balls on the table
@@ -33,14 +38,27 @@ function animate(dt) {
 }
 
 var lastTime;
+var tooSlow = false;
 function tick() {
   // Determine the time elapsed
   if (typeof lastTime == 'undefined')
     lastTime = Date.now();
   var dt = (Date.now() - lastTime) / 1000.0;
   lastTime = Date.now();
-
-  // TODO: Pause the simulation if dt gets too large
+  // "Pause" the simulation if dt gets too large by capping dt. Without doing
+  // this, huge dt can mess up the simulation if, for instance, the user has a
+  // slow computer or looks at a different tab and we can't draw a frame for a
+  // long time. A lower MAX_DT avoids many physics anomalies, but it can slow
+  // down the simulation.
+  dt = Math.min(dt, MAX_DT);
+  // Detect when dt = MAX_DT and inform the user that their computer might be
+  // too slow.
+  if (dt == MAX_DT && !tooSlow) {
+    // TODO: Avoid displaying this warning when the user changes tabs.
+    // TODO: Make a less intrusive warning.
+    window.alert("Your computer might be too slow for this game! Sorry!");
+    tooSlow = true;
+  }
 
   requestAnimFrame(tick);
   render();
@@ -82,6 +100,8 @@ window.onload = function init() {
   gl.viewport(0, 0, canvasWidth, canvasHeight);
   gl.clearColor(0.180, 0.505, 0.074, 1.0);
   gl.enable(gl.DEPTH_TEST);
+  gl.enable(gl.CULL_FACE);
+  gl.cullFace(gl.BACK);
 
   //----------------------------------------
   // TODO: load shaders and initialize attribute
@@ -118,7 +138,7 @@ function startGame() {
   tick();
 }
 
-var geometryAssets = [ "common/billiard_ball.obj" ];
+var geometryAssets = [ "common/unit_billiard_ball.obj" ];
 var textureAssets = [
   "common/cue_ball.png",
   "common/billiard_ball_1.png",
@@ -640,18 +660,18 @@ var BilliardBall = function(number) {
   }
 
   // Iherit from mesh object
-  MeshObject.call(this, "common/billiard_ball.obj", textureFile, "billiardball");
+  MeshObject.call(this, "common/unit_billiard_ball.obj", textureFile, "billiardball");
 
   // Initial physical properties
   this.position = vec2(0.0, 0.0);
   this.orientation = quat(0.0, 0.0, 0.0, 1.0);
-  this.velocity = vec2(1, -2);
-  this.radius = 1.0;
+  this.velocity = vec2(1.0, 1.0);
 };
 BilliardBall.prototype = Object.create(MeshObject.prototype);
 BilliardBall.prototype.constructor = BilliardBall;
 BilliardBall.prototype.draw = function(gl) {
-  this.modelViewMatrix = scalem(1.0, 1.0, 1.0);
+  // Scale the ball (the mesh is unit size, i.e. 1 meter in diameter)
+  this.modelViewMatrix = scalem(BALL_RADIUS, BALL_RADIUS, BALL_RADIUS);
   // Rotate the ball
   this.modelViewMatrix = mult(quatToMatrix(this.orientation), this.modelViewMatrix);
   // Translate the ball into its position
@@ -777,7 +797,8 @@ BilliardTable.prototype.tick = function(dt) {
         window.alert("Broad-phase collision between " + lesserNumber + " and " + greaterNumber + " distance: " + length(subtract(this.yBalls[i].position, this.yBalls[j].position)));
         // Exact collision detection
         if (length(subtract(this.yBalls[i].position, this.yBalls[j].position)) < BALL_DIAMETER) {
-          window.alert("Collision between " + lesserNumber + " and " + greaterNumber);
+//          window.alert("Collision between " + lesserNumber + " and " + greaterNumber);
+          // TODO: Reflection of balls
         }
       }
     }
