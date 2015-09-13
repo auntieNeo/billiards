@@ -698,7 +698,7 @@ var BilliardTable = function() {
   }
 
   // TODO: Arrange balls in a billiards pattern
-  var offset = vec2(0.05, 0.05);
+  var offset = vec2(0.02, 0.02);
   for (var i = 0; i <= 15; ++i) {
     this.balls[i].position = add(this.balls[i].position, scale(i, offset));
   }
@@ -726,13 +726,13 @@ BilliardTable.prototype.tick = function(dt) {
 
   // TODO: Determine ball-ball collisions
   // First, broad-phase collision detection with sweep and prune algorithm
-  // TODO: Sort xBalls by ball x position and yBalls by y position NOTE:
-  // NOTE: Insertion sort is used here because (1) we need to iterate to find
-  // all potential collisions anyway and (2) insertion sort has an amortized
-  // running time of O(n) for nearly-sorted lists such as these. Maybe
-  // Javascript's quicksort implementation is faster (because it would be
-  // implemented in C), but I haven't tried it.
+  // NOTE: Insertion sort could be used here because (1) we need to iterate to
+  // find all potential collisions anyway and (2) insertion sort has an
+  // amortized running time of O(n) for nearly-sorted lists such as these. I'm
+  // guessing Javascript's quicksort implementation is faster (because it would
+  // be implemented in C), but I don't have any benchmarks yet.
   var xCollisions = [];
+  // Sort xBalls by x position
   this.xBalls.sort(function(a, b) {
     return a.position[0] - b.position[0];
   });
@@ -754,6 +754,7 @@ BilliardTable.prototype.tick = function(dt) {
       xCollisions[lesserNumber + greaterNumber * NUMBER_OF_BALLS] = true;
     }
   }
+  // Sort yBalls by y position
   this.yBalls.sort(function(a, b) {
     return a.position[1] - b.position[1];
   });
@@ -773,7 +774,11 @@ BilliardTable.prototype.tick = function(dt) {
         greaterNumber = this.yBalls[i].number;
       }
       if (typeof xCollisions[lesserNumber + greaterNumber * NUMBER_OF_BALLS] != 'undefined') {
-        window.alert("Broad-phase collision between " + lesserNumber + " and " + greaterNumber + " distance: " + (this.yBalls[i].position[0] - this.yBalls[j].position[0]));
+        window.alert("Broad-phase collision between " + lesserNumber + " and " + greaterNumber + " distance: " + length(subtract(this.yBalls[i].position, this.yBalls[j].position)));
+        // Exact collision detection
+        if (length(subtract(this.yBalls[i].position, this.yBalls[j].position)) < BALL_DIAMETER) {
+          window.alert("Collision between " + lesserNumber + " and " + greaterNumber);
+        }
       }
     }
   }
