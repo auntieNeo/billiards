@@ -567,6 +567,9 @@ MeshObject.prototype.draw = function(gl) {  // TODO: Take the camera as an argum
 // Prototype for billiard ball objects
 //------------------------------------------------------------
 var BilliardBall = function(number) {
+  this.number = number;
+
+  // Determine the ball texture to use
   var textureFile;
   switch (number) {
     case 0:
@@ -657,13 +660,14 @@ BilliardBall.prototype.draw = function(gl) {
   MeshObject.prototype.draw.call(this, gl);
 }
 BilliardBall.prototype.tick = function(dt) {
+  if (length(this.velocity) < BALL_VELOCITY_EPSILON) {
+    this.velocity = vec2(0.0, 0.0);
+  } else {
   // Account for rolling resistance, i.e. friction
   this.velocity = add(this.velocity, scale(-dt*BALL_CLOTH_ROLLING_RESISTANCE_ACCELERATION, normalize(this.velocity)));
-  if (length(this.velocity) < BALL_VELOCITY_EPSILON)
-    this.velocity = vec2(0.0, 0.0);
-  // Compute the displacement
+  // Compute the displacement due to velocity
   var displacement = scale(dt, this.velocity);
-  if (length(displacement) > 0) {
+  if (length(displacement) > 0) {   // NOTE: This check is needed for the rotation code to work
     // Rotate the ball
     // NOTE: The rotation axis for the ball is perpendicular to the velocity
     // vector and the table normal (+Z axis). The angular displacement Theta is
@@ -678,22 +682,29 @@ BilliardBall.prototype.tick = function(dt) {
     // Displace the ball
     this.position = add(this.position, displacement);
   }
+  }
 }
 
 //------------------------------------------------------------
 // Prototype for billiard tables
 //------------------------------------------------------------
 var BilliardTable = function() {
+  // Make objects for each ball
+  // TODO: Support games without all 15 balls
   this.balls = [];
   for (var i = 0; i <= 15; ++i) {
     this.balls.push(new BilliardBall(i));
   }
 
   // TODO: Arrange balls in a billiards pattern
-  var offset = vec2(0.1, 0.1);
+  var offset = vec2(0.05, 0.1);
   for (var i = 0; i <= 15; ++i) {
     this.balls[i].position = add(this.balls[i].position, scale(i, offset));
   }
+
+  // Structures for broad-phase collision detection
+  this.xBalls = this.balls.slice();
+  this.yBalls = this.balls.slice();
 }
 BilliardTable.prototype.draw = function(gl) {
   // TODO: Transform table to its position
@@ -711,8 +722,37 @@ BilliardTable.prototype.tick = function(dt) {
   }
 
   // TODO: Simulate the physics of billiards in 2D
+
   // TODO: Determine ball-ball collisions
+  // First, broad-phase collision detection with sweep and prune algorithm
+  // TODO: Sort xBalls by ball x position and yBalls by y position NOTE:
+  // NOTE: Insertion sort is used here because (1) we need to iterate to find
+  // all potential collisions anyway and (2) insertion sort has an amortized
+  // running time of O(n) for nearly-sorted lists such as these. Maybe
+  // Javascript's quicksort implementation is faster (because it would be
+  // implemented in C), but I haven't tried it.
+  this.xBalls.sort(function(a, b) {
+    return a.position[0] - b.position[0];
+  });
+  for (var i = 1; i < this.xBalls.length; ++i) {
+    // Search backwards (negative-x direction) for collisions
+    for (var j = i - 1; j >= 0; --j) {
+      if (this.xBalls[i].position[0] - this.xBalls[j].position[0] >= BALL_DIAMETER)
+        break;
+      // Potential collision between xBalls[i] and xBalls[j]
+//      window.alert("X-axis collision between " + this.xBalls[i].number + " and " + this.xBalls[j].number + " distance: " + (this.xBalls[i].position[0] - this.xBalls[j].position[0]));
+    }
+    // Search forwards (positive-x direction) for collisions
+    for (var j = i + 1; j < this.xBalls.length; ++j) {
+      if (this.xBalls[j].position[0] - this.xBalls[i].position[0] >= BALL_DIAMETER)
+        break;
+      // Potential collision between xBalls[i] and xBalls[j]
+//      window.alert("X-axis collision between " + this.xBalls[i].number + " and " + this.xBalls[j].number + " distance: " + (this.xBalls[j].position[0] - this.xBalls[i].position[0]));
+    }
+  }
+
   // TODO: Determine ball-wall collisions
+
   // TODO: Determine ball-hole collisions
 }
 
