@@ -26,11 +26,17 @@ var BALL_CLOTH_ROLLING_RESISTANCE_ACCELERATION =
 var CUE_BALL_MASS = 0.17;  // kg
 var NUMBERED_BALL_MASS = 0.16;  // kg
 
+// Gameplay modes
+var EIGHT_BALL_MODE = 1;
+var NINE_BALL_MODE = 2;
+var STRAIGHT_POOL_MODE = 3;
 // Gameplay constants
-var NUMBER_OF_BALLS = 15;
+var EIGHT_BALL_NUM_BALLS = 9;
+var NINE_BALL_NUM_BALLS = 10;
+var STRAIGHT_POOL_NUM_BALLS = 16;
 
 // Animation constants
-var MAX_DT = 0.1;  // Arbitrary s
+var MAX_DT = 0.01;  // Arbitrary s
 
 function animate(dt) {
   // Compute the new positions of the balls on the table
@@ -134,7 +140,8 @@ function startGame() {
   //----------------------------------------
   // TODO: Create game objects
   //----------------------------------------
-  billiardTable = new BilliardTable();
+  // TODO: Allow user to select different game modes
+  billiardTable = new BilliardTable(NINE_BALL_MODE);
 
   // Start the asynchronous game loop
   tick();
@@ -711,17 +718,31 @@ BilliardBall.prototype.tick = function(dt) {
 //------------------------------------------------------------
 // Prototype for billiard tables
 //------------------------------------------------------------
-var BilliardTable = function() {
+var BilliardTable = function(gamemode) {
+  this.gamemode = gamemode;
+  // Set game parameters based on the selected game mode
+  switch (gamemode) {
+    case EIGHT_BALL_MODE:
+      this.numBalls = EIGHT_BALL_NUM_BALLS;
+      break;
+    case NINE_BALL_MODE:
+      this.numBalls = NINE_BALL_NUM_BALLS;
+      break;
+    case STRAIGHT_POOL_MODE:
+      this.numBalls = STRAIGHT_POOL_NUM_BALLS;
+      break;
+    default:
+      window.alert("Unknown game mode!");
+  }
   // Make objects for each ball
-  // TODO: Support games without all 15 balls
   this.balls = [];
-  for (var i = 0; i <= 15; ++i) {
+  for (var i = 0; i < this.numBalls; ++i) {
     this.balls.push(new BilliardBall(i));
   }
 
   // TODO: Arrange balls in a billiards pattern
   var offset = vec2(0.1, 0.1);
-  for (var i = 0; i <= 15; ++i) {
+  for (var i = 0; i < this.numBalls; ++i) {
     this.balls[i].position = add(this.balls[i].position, scale(i, offset));
   }
 
@@ -732,7 +753,7 @@ var BilliardTable = function() {
 BilliardTable.prototype.draw = function(gl) {
   // TODO: Transform table to its position
   // FIXME: Don't draw balls that have already been pocketed
-  for (var i = 0; i <= 15; ++i) {
+  for (var i = 0; i < this.numBalls; ++i) {
     this.balls[i].draw(gl);
   }
   // TODO: Transform balls to one ball-radius away from the table surface
@@ -740,7 +761,7 @@ BilliardTable.prototype.draw = function(gl) {
 BilliardTable.prototype.tick = function(dt) {
   // TODO: Advance all balls by their velocities
   // FIXME: Don't loop through balls that have already been pocketed
-  for (var i = 0; i <= 15; ++i) {
+  for (var i = 0; i < this.numBalls; ++i) {
     this.balls[i].tick(dt);
   }
 
@@ -773,7 +794,7 @@ BilliardTable.prototype.tick = function(dt) {
       } else {
         greaterNumber = this.xBalls[i].number;
       }
-      xCollisions[lesserNumber + greaterNumber * NUMBER_OF_BALLS] = true;
+      xCollisions[lesserNumber + greaterNumber * this.numBalls] = true;
     }
   }
   // Sort yBalls by y position
@@ -795,12 +816,25 @@ BilliardTable.prototype.tick = function(dt) {
       } else {
         greaterNumber = this.yBalls[i].number;
       }
-      if (typeof xCollisions[lesserNumber + greaterNumber * NUMBER_OF_BALLS] != 'undefined') {
+      if (typeof xCollisions[lesserNumber + greaterNumber * this.numBalls] != 'undefined') {
 //        window.alert("Broad-phase collision between " + lesserNumber + " and " + greaterNumber + " distance: " + length(subtract(this.yBalls[i].position, this.yBalls[j].position)));
         // Exact collision detection
         if (length(subtract(this.yBalls[i].position, this.yBalls[j].position)) < BALL_DIAMETER) {
-//          window.alert("Collision between " + lesserNumber + " and " + greaterNumber);
-          // TODO: Reflection of balls
+          window.alert("Collision between " + lesserNumber + " and " + greaterNumber);
+          // Reflection of balls
+          var iVelocity = elasticCollisionReflection(
+              this.yBalls[i].velocity, this.yBalls[j].velocity,
+              this.yBalls[i].position, this.yBalls[j].position);
+          var jVelocity = elasticCollisionReflection(
+              this.yBalls[j].velocity, this.yBalls[i].velocity,
+              this.yBalls[j].position, this.yBalls[i].position);
+          this.yBalls[i].velocity = iVelocity;
+          this.yBalls[j].velocity = jVelocity;
+          // TODO: Recursive resolution of collision
+          var iDisplacement = collisionDisplacement(this.yBalls[i].position, this.yBalls[j].position, BALL_RADIUS);
+          var jDisplacement = collisionDisplacement(this.yBalls[j].position, this.yBalls[i].position, BALL_RADIUS);
+          this.yBalls[i].position = add(this.yBalls[i].position, scale(1.01, iDisplacement));
+          this.yBalls[j].position = add(this.yBalls[j].position, scale(1.01, jDisplacement));
         }
       }
     }
@@ -900,4 +934,15 @@ function quatToMatrix(q) {
 
 function reflection(v, n) {
   return subtract(v, scale(2*dot(v,n),n));
+}
+
+function elasticCollisionReflection(u, v, p, q) {
+  // TODO: Account for ball mass.
+  var displacement = subtract(p, q);
+  return subtract(u, scale(dot(subtract(u, v), displacement)/dot(displacement, displacement), displacement));
+}
+function collisionDisplacement(p, q, r) {
+  var displacementVector = subtract(p, q);
+  var displacement = length(displacementVector);
+  return scale((2*r - displacement)/(2*displacement), displacementVector);
 }
