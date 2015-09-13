@@ -580,27 +580,32 @@ function length( u )
 
 //----------------------------------------------------------------------------
 
+// Ugh, I _HATE_ this geometry library. normalize() was causing ugly
+// side-effects, so I changed it.
 function normalize( u, excludeLastComponent )
 {
-    if ( excludeLastComponent ) {
-        var last = u.pop();
-    }
-
     var len = length( u );
 
     if ( !isFinite(len) ) {
         throw "normalize: vector " + u + " has zero length";
     }
 
-    for ( var i = 0; i < u.length; ++i ) {
-        u[i] /= len;
+    var result = [];
+
+    var last = u.length - 1;
+    if ( excludeLastComponent ) {
+      last -= 1;
+    }
+
+    for ( var i = 0; i <= last; ++i ) {
+        result.push( u[i] / len );
     }
 
     if ( excludeLastComponent ) {
-        u.push( last );
+        result.push( u[u.length-1] )
     }
 
-    return u;
+    return result;
 }
 
 //----------------------------------------------------------------------------

@@ -16,6 +16,16 @@ var TABLE_WIDTH = 117.0E-2;  // 117cm
 var BALL_DIAMETER = 57.15E-3;  // 57.15mm
 var BALL_RADIUS = BALL_DIAMETER / 2;
 
+// Various billiards physics constants
+// See: <http://billiards.colostate.edu/threads/physics.html>
+var BALL_CLOTH_COEFFICIENT_OF_ROLLING_RESISTANCE = 0.010  // 0.005 - 0.015
+var BALL_VELOCITY_EPSILON = 0.0001;  // Arbitrary m/s
+var GRAVITY_ACCELERATION = 9.80665;  // m/s^2
+var BALL_CLOTH_ROLLING_RESISTANCE_ACCELERATION =
+    BALL_CLOTH_COEFFICIENT_OF_ROLLING_RESISTANCE * GRAVITY_ACCELERATION;
+var CUE_BALL_MASS = 0.17;  // kg
+var NUMBERED_BALL_MASS = 0.16;  // kg
+
 function animate(dt) {
   // Compute the new positions of the balls on the table
   billiardTable.tick(dt);
@@ -26,8 +36,10 @@ function tick() {
   // Determine the time elapsed
   if (typeof lastTime == 'undefined')
     lastTime = Date.now();
-  var dt = Date.now() - lastTime;
+  var dt = (Date.now() - lastTime) / 1000.0;
   lastTime = Date.now();
+
+  // TODO: Pause the simulation if dt gets too large
 
   requestAnimFrame(tick);
   render();
@@ -628,21 +640,16 @@ var BilliardBall = function(number) {
 
   // Initial physical properties
   this.position = vec2(0.0, 0.0);
-  this.velocity = vec2(-0.0001, -0.0001);
+  this.orientation = quat(0.0, 0.0, 0.0, 1.0);
+  this.velocity = vec2(-0.5, -0.5);
   this.radius = 1.0;
-  // TODO: 
-  // TODO: Determine the textures that need 
 };
 BilliardBall.prototype = Object.create(MeshObject.prototype);
 BilliardBall.prototype.constructor = BilliardBall;
 BilliardBall.prototype.draw = function(gl) {
   this.modelViewMatrix = scalem(1.0, 1.0, 1.0);
   // Rotate the ball
-  if (typeof this.rotation == 'undefined')
-    this.rotation = 0;
-  this.rotation += 1;
-  // TODO: Get quaternion rotation working
-  this.modelViewMatrix = mult(rotate(this.rotation, vec3(1.0, 1.0, 0.0)), this.modelViewMatrix);
+  this.modelViewMatrix = mult(quatToMatrix(this.orientation), this.modelViewMatrix);
   // Translate the ball into its position
   this.modelViewMatrix = mult(translate(this.position[0], this.position[1], 0.0), this.modelViewMatrix);
   // TODO: Translate the ball in front of the camera (with the world-view matrix)
@@ -650,8 +657,27 @@ BilliardBall.prototype.draw = function(gl) {
   MeshObject.prototype.draw.call(this, gl);
 }
 BilliardBall.prototype.tick = function(dt) {
-  // position += velocity * dt
-  this.position = add(this.position, scale(dt, this.velocity));
+  // Account for rolling resistance, i.e. friction
+  this.velocity = add(this.velocity, scale(-dt*BALL_CLOTH_ROLLING_RESISTANCE_ACCELERATION, normalize(this.velocity)));
+  if (length(this.velocity) < BALL_VELOCITY_EPSILON)
+    this.velocity = vec2(0.0, 0.0);
+  // Compute the displacement
+  var displacement = scale(dt, this.velocity);
+  if (length(displacement) > 0) {
+    // Rotate the ball
+    // NOTE: The rotation axis for the ball is perpendicular to the velocity
+    // vector and the table normal (+Z axis). The angular displacement Theta is
+    // related to the linear displacement of the ball r and the radius of the
+    // ball R by the equation Theta=r/R. Quaternions can be easily calculated
+    // from a rotational axis and an angle. In short: find the rotation axis
+    // and angular displacement to make a quaternion.
+    // FIXME: I can probably avoid computing the length twice here
+    var rotationAxis = normalize(cross(vec3(0.0, 0.0, 1.0), vec3(displacement)));
+    var angularDisplacement = length(displacement) / BALL_RADIUS;
+    this.orientation = qmult(this.orientation, quat(rotationAxis, angularDisplacement));
+    // Displace the ball
+    this.position = add(this.position, displacement);
+  }
 }
 
 //------------------------------------------------------------
@@ -693,5 +719,50 @@ BilliardTable.prototype.tick = function(dt) {
 //------------------------------------------------------------
 // Prototype for cameras
 //------------------------------------------------------------
-var Camera = function() {
+var Camera = function () {
+}
+
+//------------------------------------------------------------
+// Prototype for quaternions
+//------------------------------------------------------------
+// TODO: Get a better geometry library
+function quat(axis, angle) {
+  if (Array.isArray(axis)) {
+    if (axis.length == 3) {
+      // Build the quaternion from axis and angle
+      return vec4(
+          axis[0] * Math.sin(angle / 2),
+          axis[1] * Math.sin(angle / 2),
+          axis[2] * Math.sin(angle / 2),
+          Math.cos(angle / 2));
+    } else {
+      throw "Quat(): quaternion axis must be a vec3";
+    }
+  } else {
+    // NOTE: I stole this clever bit from Edward Angel's geometry library...
+    var result = _argumentsToArray( arguments );
+    switch (result.length) {
+      case 0: result.push(0.0);
+      case 1: result.push(0.0);
+      case 2: result.push(0.0);
+      case 3: result.push(1.0);
+    }
+    return result;
+  }
+}
+function qmult(q, r) {
+  return quat(
+      q[3]*r[0] + q[0]*r[3] + q[1]*r[2] - q[2]*r[1],
+      q[3]*r[1] - q[0]*r[2] + q[1]*r[3] + q[2]*r[0],
+      q[3]*r[2] + q[0]*r[1] - q[1]*r[0] + q[2]*r[3],
+      q[3]*r[3] - q[0]*r[0] - q[1]*r[1] - q[2]*r[2]
+      );
+}
+function quatToMatrix(q) {
+  return mat4(
+      1-2*q[1]*q[1]-2*q[2]*q[2], 2*q[0]*q[1]-2*q[3]*q[2], 2*q[0]*q[2]+2*q[3]*q[1], 0,
+      2*q[0]*q[1]+2*q[3]*q[2], 1-2*q[0]*q[0]-2*q[2]*q[2], 2*q[1]*q[2]-2*q[3]*q[0], 0,
+      2*q[0]*q[2]-2*q[3]*q[1], 2*q[1]*q[2]+2*q[3]*q[0], 1-2*q[0]*q[0]-2*q[1]*q[1], 0,
+      0, 0, 0, 1
+      );
 }
