@@ -30,7 +30,7 @@ var NUMBERED_BALL_MASS = 0.16;  // kg
 var NUMBER_OF_BALLS = 15;
 
 // Animation constants
-var MAX_DT = 0.01;  // Arbitrary s
+var MAX_DT = 0.1;  // Arbitrary s
 
 function animate(dt) {
   // Compute the new positions of the balls on the table
@@ -39,12 +39,14 @@ function animate(dt) {
 
 var lastTime;
 var tooSlow = false;
+var totalElapsed = 0.0;
 function tick() {
   // Determine the time elapsed
   if (typeof lastTime == 'undefined')
     lastTime = Date.now();
   var dt = (Date.now() - lastTime) / 1000.0;
   lastTime = Date.now();
+  totalElapsed += dt;
   // "Pause" the simulation if dt gets too large by capping dt. Without doing
   // this, huge dt can mess up the simulation if, for instance, the user has a
   // slow computer or looks at a different tab and we can't draw a frame for a
@@ -53,7 +55,7 @@ function tick() {
   dt = Math.min(dt, MAX_DT);
   // Detect when dt = MAX_DT and inform the user that their computer might be
   // too slow.
-  if (dt == MAX_DT && !tooSlow) {
+  if (dt == MAX_DT && !tooSlow && (totalElapsed > 3.0)) {
     // TODO: Avoid displaying this warning when the user changes tabs.
     // TODO: Make a less intrusive warning.
     window.alert("Your computer might be too slow for this game! Sorry!");
@@ -794,7 +796,7 @@ BilliardTable.prototype.tick = function(dt) {
         greaterNumber = this.yBalls[i].number;
       }
       if (typeof xCollisions[lesserNumber + greaterNumber * NUMBER_OF_BALLS] != 'undefined') {
-        window.alert("Broad-phase collision between " + lesserNumber + " and " + greaterNumber + " distance: " + length(subtract(this.yBalls[i].position, this.yBalls[j].position)));
+//        window.alert("Broad-phase collision between " + lesserNumber + " and " + greaterNumber + " distance: " + length(subtract(this.yBalls[i].position, this.yBalls[j].position)));
         // Exact collision detection
         if (length(subtract(this.yBalls[i].position, this.yBalls[j].position)) < BALL_DIAMETER) {
 //          window.alert("Collision between " + lesserNumber + " and " + greaterNumber);
