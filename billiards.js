@@ -19,7 +19,7 @@ var BALL_RADIUS = BALL_DIAMETER / 2;
 // Various billiards physics constants
 // See: <http://billiards.colostate.edu/threads/physics.html>
 var BALL_CLOTH_COEFFICIENT_OF_ROLLING_RESISTANCE = 0.010  // 0.005 - 0.015
-var BALL_VELOCITY_EPSILON = 0.0001;  // Arbitrary m/s
+var BALL_VELOCITY_EPSILON = 0.001;  // Arbitrary m/s
 var GRAVITY_ACCELERATION = 9.80665;  // m/s^2
 var BALL_CLOTH_ROLLING_RESISTANCE_ACCELERATION =
     BALL_CLOTH_COEFFICIENT_OF_ROLLING_RESISTANCE * GRAVITY_ACCELERATION;
@@ -645,7 +645,7 @@ var BilliardBall = function(number) {
   // Initial physical properties
   this.position = vec2(0.0, 0.0);
   this.orientation = quat(0.0, 0.0, 0.0, 1.0);
-  this.velocity = vec2(-0.5, -0.5);
+  this.velocity = vec2(-1, -1);
   this.radius = 1.0;
 };
 BilliardBall.prototype = Object.create(MeshObject.prototype);
@@ -783,7 +783,43 @@ BilliardTable.prototype.tick = function(dt) {
     }
   }
 
-  // TODO: Determine ball-wall collisions
+  // Determine ball-wall collisions
+  // Consider westmost balls
+  for (var i = 0; i < this.xBalls.length; ++i) {
+    if (this.xBalls[i].position[0] < -(TABLE_LENGTH/2 - BALL_RADIUS)) {
+      // Get the ball out of the wall
+      this.xBalls[i].position[0] = -(TABLE_LENGTH/2 - BALL_RADIUS);  // TODO: Recursively correct collision moves
+      // Compute the reflection for the velocity
+      this.xBalls[i].velocity = reflection(this.xBalls[i].velocity, vec2(1.0, 0.0));
+    } else break;
+  }
+  // Consider eastmost balls
+  for (var i = this.xBalls.length - 1; i >= 0; --i) {
+    if (this.xBalls[i].position[0] > TABLE_LENGTH/2 - BALL_RADIUS) {
+      // Get the ball out of the wall
+      this.xBalls[i].position[0] = TABLE_LENGTH/2 - BALL_RADIUS;  // TODO: Recursively correct collision moves
+      // Compute the reflection for the velocity
+      this.xBalls[i].velocity = reflection(this.xBalls[i].velocity, vec2(-1.0, 0.0));
+    } else break;
+  }
+  // Consider southmost balls
+  for (var i = 0; i < this.yBalls.length; ++i) {
+    if (this.yBalls[i].position[1] < -(TABLE_WIDTH/2 - BALL_RADIUS)) {
+      // Get the ball out of the wall
+      this.yBalls[i].position[1] = -(TABLE_WIDTH/2 - BALL_RADIUS);  // TODO: Recursively correct collision moves
+      // Compute the reflection for the velocity
+      this.yBalls[i].velocity = reflection(this.yBalls[i].velocity, vec2(0.0, 1.0));
+    } else break;
+  }
+  // Consider northmost balls
+  for (var i = this.xBalls.length - 1; i >= 0; --i) {
+    if (this.yBalls[i].position[1] > TABLE_WIDTH/2 - BALL_RADIUS) {
+      // Get the ball out of the wall
+      this.yBalls[i].position[1] = TABLE_WIDTH/2 - BALL_RADIUS;  // TODO: Recursively correct collision moves
+      // Compute the reflection for the velocity
+      this.yBalls[i].velocity = reflection(this.yBalls[i].velocity, vec2(0.0, -1.0));
+    } else break;
+  }
 
   // TODO: Determine ball-hole collisions
 }
@@ -837,4 +873,8 @@ function quatToMatrix(q) {
       2*q[0]*q[2]-2*q[3]*q[1], 2*q[1]*q[2]+2*q[3]*q[0], 1-2*q[0]*q[0]-2*q[1]*q[1], 0,
       0, 0, 0, 1
       );
+}
+
+function reflection(v, n) {
+  return subtract(v, scale(2*dot(v,n),n));
 }
