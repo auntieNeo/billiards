@@ -645,7 +645,7 @@ var BilliardBall = function(number) {
   // Initial physical properties
   this.position = vec2(0.0, 0.0);
   this.orientation = quat(0.0, 0.0, 0.0, 1.0);
-  this.velocity = vec2(-1, -1);
+  this.velocity = vec2(1, -2);
   this.radius = 1.0;
 };
 BilliardBall.prototype = Object.create(MeshObject.prototype);
@@ -679,7 +679,7 @@ BilliardBall.prototype.tick = function(dt) {
     // FIXME: I can probably avoid computing the length twice here
     var rotationAxis = normalize(cross(vec3(0.0, 0.0, 1.0), vec3(displacement)));
     var angularDisplacement = length(displacement) / BALL_RADIUS;
-    this.orientation = qmult(this.orientation, quat(rotationAxis, angularDisplacement));
+    this.orientation = qmult(quat(rotationAxis, angularDisplacement), this.orientation);
     // Displace the ball
     this.position = add(this.position, displacement);
   }
@@ -698,7 +698,7 @@ var BilliardTable = function() {
   }
 
   // TODO: Arrange balls in a billiards pattern
-  var offset = vec2(0.02, 0.02);
+  var offset = vec2(0.1, 0.1);
   for (var i = 0; i <= 15; ++i) {
     this.balls[i].position = add(this.balls[i].position, scale(i, offset));
   }
