@@ -109,15 +109,15 @@ window.onload = function init() {
   gl.viewport(0, 0, canvasWidth, canvasHeight);
   gl.clearColor(0.180, 0.505, 0.074, 1.0);
   gl.enable(gl.DEPTH_TEST);
-  gl.enable(gl.CULL_FACE);
-  gl.cullFace(gl.BACK);
+//  gl.enable(gl.CULL_FACE);
+//  gl.cullFace(gl.BACK);
 
   //----------------------------------------
   // TODO: load shaders and initialize attribute
   // buffers
   //----------------------------------------
   // TODO: Move the matrix initialization somewhere else
-  projectionMatrix = ortho(-TABLE_LENGTH/2, TABLE_LENGTH/2, -TABLE_WIDTH/2, TABLE_WIDTH/2, -10000, 10000);
+  projectionMatrix = ortho(-TABLE_LENGTH/1.9, TABLE_LENGTH/1.9, -TABLE_WIDTH/1.9, TABLE_WIDTH/1.9, -10000, 10000);
 //  projectionMatrix = ortho(-100, 100, -100, 100, 1, -1);
 //  modelViewMatrix = mult(scalem(0.1, 0.1, 0.1), translate(0, 0, 50));
 //  projectionMatrix = scalem(1.0, 1.0, 1.0);
@@ -148,7 +148,10 @@ function startGame() {
   tick();
 }
 
-var geometryAssets = [ "common/unit_billiard_ball.obj" ];
+var geometryAssets = [
+  "common/unit_billiard_ball.obj",
+  "common/test_table.obj"
+];
 var textureAssets = [
   "common/cue_ball.png",
   "common/billiard_ball_1.png",
@@ -165,7 +168,8 @@ var textureAssets = [
   "common/billiard_ball_12.png",
   "common/billiard_ball_13.png",
   "common/billiard_ball_14.png",
-  "common/billiard_ball_15.png"
+  "common/billiard_ball_15.png",
+  "common/test_table.png"
 ];
 var shaderAssets = [ { name: "billiardball", vert: "billiardball-vert", frag: "billiardball-frag",
                        attributes: { vertexPosition: -1, vertexUV: -1, vertexNormal: -1 },
@@ -681,6 +685,7 @@ BilliardBall.prototype = Object.create(MeshObject.prototype);
 BilliardBall.prototype.constructor = BilliardBall;
 BilliardBall.prototype.draw = function(gl) {
   // Scale the ball (the mesh is unit size, i.e. 1 meter in diameter)
+  // FIXME: The ball should be using a matrix stack from the table, not making its own matrix.
   this.modelViewMatrix = scalem(BALL_RADIUS, BALL_RADIUS, BALL_RADIUS);
   // Rotate the ball
   this.modelViewMatrix = mult(quatToMatrix(this.orientation), this.modelViewMatrix);
@@ -720,6 +725,9 @@ BilliardBall.prototype.tick = function(dt) {
 // Prototype for billiard tables
 //------------------------------------------------------------
 var BilliardTable = function(gamemode) {
+  // Iherit from mesh object
+  MeshObject.call(this, "common/test_table.obj", "common/test_table.png", "billiardball");
+
   this.gamemode = gamemode;
   // Set game parameters based on the selected game mode
   switch (gamemode) {
@@ -751,10 +759,16 @@ var BilliardTable = function(gamemode) {
   this.xBalls = this.balls.slice();
   this.yBalls = this.balls.slice();
 }
+BilliardTable.prototype = Object.create(MeshObject.prototype);
 BilliardTable.prototype.draw = function(gl) {
-  // TODO: Transform table to its position
+  this.modelViewMatrix = scalem(1.0, 1.0, 1.0);  // FIXME: Use a matrix stack
+  // Draw the billiard table
+  MeshObject.prototype.draw.call(this, gl);
+  // TODO: Transform the balls so they lie on the xy-plane, where the table
+  // model's surface is located
   // FIXME: Don't draw balls that have already been pocketed
   for (var i = 0; i < this.numBalls; ++i) {
+    // Draw each ball
     this.balls[i].draw(gl);
   }
   // TODO: Transform balls to one ball-radius away from the table surface
