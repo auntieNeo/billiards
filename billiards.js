@@ -13,7 +13,7 @@ var TABLE_WIDTH = 127.0E-2;  // 127cm
 var TABLE_LENGTH = 234.0E-2;  // 234cm
 var TABLE_WIDTH = 117.0E-2;  // 117cm
 // American-style ball
-var BALL_DIAMETER = 57.15E-3;  // 57.15mm
+var BALL_DIAMETER = 2*57.15E-3;  // 57.15mm
 var BALL_RADIUS = BALL_DIAMETER / 2;
 
 // Various billiards physics constants
@@ -38,6 +38,14 @@ var STRAIGHT_POOL_NUM_BALLS = 16;
 // Animation constants
 var MAX_DT = 0.01;  // Arbitrary s
 var LARGE_DT = MAX_DT * 10;  // Arbitrary limit for frame drop warning
+
+// Camera data (copied from Blender)
+MAIN_CAMERA_POSITION = vec3(0, -3.68597, 1.71157);
+MAIN_CAMERA_ORIENTATION = vec4(0.518, -0.004, -0.017, 0.855);
+MAIN_CAMERA_FOV = 49.134;  // Degrees
+MAIN_CAMERA_ASPECT = 2.0;  // TODO: Adjust this to the exact aspect of the table/window
+MAIN_CAMERA_NEAR = .1;
+MAIN_CAMERA_FAR = 100;
 
 function animate(dt) {
   // Compute the new positions of the balls on the table
@@ -77,8 +85,9 @@ function tick() {
 // FIXME: Need to move these somewhere
 var projectionMatrix;
 
-// TODO: Put this inside some sort of game state object
+// TODO: Put these inside some sort of game state object
 var billiardTable;
+var mainCamera;  // TODO: Move this inside the billiardTable object, so that it is always relative to the table surface
 
 
 //------------------------------------------------------------
@@ -87,7 +96,15 @@ var billiardTable;
 function render() {
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-  billiardTable.draw(gl);
+  var modelWorld = new TransformationStack();
+  // TODO: Determine the camera to draw (e.g. are we idling (rotate around the
+  // table with perspective view)? Is the user dragging the cue stick(top ortho
+  // view)?  Was the que ball just struck? Is the target ball close to a pocket
+  // (pocket view)?
+  var worldView = mainCamera.worldViewTransformation();
+  var projection = mainCamera.projectionTransformation();
+
+  billiardTable.draw(gl, modelWorld, worldView, projection);
 }
 
 //------------------------------------------------------------
@@ -117,7 +134,7 @@ window.onload = function init() {
   // buffers
   //----------------------------------------
   // TODO: Move the matrix initialization somewhere else
-  projectionMatrix = ortho(-TABLE_LENGTH/1.9, TABLE_LENGTH/1.9, -TABLE_WIDTH/1.9, TABLE_WIDTH/1.9, -10000, 10000);
+  projectionMatrix = ortho(-TABLE_LENGTH/1.2, TABLE_LENGTH/1.2, -TABLE_WIDTH/1.2, TABLE_WIDTH/1.2, -10000, 10000);
 //  projectionMatrix = ortho(-100, 100, -100, 100, 1, -1);
 //  modelViewMatrix = mult(scalem(0.1, 0.1, 0.1), translate(0, 0, 50));
 //  projectionMatrix = scalem(1.0, 1.0, 1.0);
@@ -144,13 +161,20 @@ function startGame() {
   // TODO: Allow user to select different game modes
   billiardTable = new BilliardTable(NINE_BALL_MODE);
 
+  mainCamera = new Camera(MAIN_CAMERA_POSITION,
+                          MAIN_CAMERA_ORIENTATION,
+                          MAIN_CAMERA_FOV,
+                          MAIN_CAMERA_ASPECT,
+                          MAIN_CAMERA_NEAR,
+                          MAIN_CAMERA_FAR);
+
   // Start the asynchronous game loop
   tick();
 }
 
 var geometryAssets = [
   "common/unit_billiard_ball.obj",
-  "common/test_table.obj"
+  "common/test_table_pockets.obj"
 ];
 var textureAssets = [
   "common/cue_ball.png",
@@ -169,7 +193,8 @@ var textureAssets = [
   "common/billiard_ball_13.png",
   "common/billiard_ball_14.png",
   "common/billiard_ball_15.png",
-  "common/test_table.png"
+  "common/test_table_pockets.png",
+  "common/test.png"
 ];
 var shaderAssets = [ { name: "billiardball", vert: "billiardball-vert", frag: "billiardball-frag",
                        attributes: { vertexPosition: -1, vertexUV: -1, vertexNormal: -1 },
@@ -575,10 +600,20 @@ MeshObject.prototype.prepareVertexBuffers = function(gl) {
                            4 * 8,     // Stride for eight 32-bit values per-vertex
                            4 * 5);    // Normal starts at the sixth value stored
 }
-MeshObject.prototype.setMatrixUniforms = function(gl) {
+MeshObject.prototype.setMatrixUniforms = function(gl, modelWorld, worldView, projection) {
   // TODO: Pass the model-view matrix and the projection matrix from the camera
-  gl.uniformMatrix4fv(this.shaderProgram.uniforms.modelViewMatrix, false, flatten(this.modelViewMatrix));
-  gl.uniformMatrix4fv(this.shaderProgram.uniforms.projectionMatrix, false, flatten(projectionMatrix));
+  // The camera is defined by a position, orientation, aspect, and focal
+  // length. Each model to be rendered needs to be transformed from model space
+  // to world space, and from world space to eye space (the space in which the
+  // camera's position at the origin). It is enough to transform the model into
+  // the space of its parent model and then multiply that transform by the
+  // parent's model-view matrix. There is no need to compute a model-world
+  // matrix, unless a shader needs it for lighting. The projection matrix is
+  // provided by the camera and determines the aspect and focal length
+  // (including orthogonal versus perspective projection) for the rendered
+  // scene.
+  gl.uniformMatrix4fv(this.shaderProgram.uniforms.modelViewMatrix, false, flatten(mult(worldView.peek(), modelWorld.peek())));
+  gl.uniformMatrix4fv(this.shaderProgram.uniforms.projectionMatrix, false, flatten(projection.peek()));
 }
 MeshObject.prototype.drawElements = function(gl) {
   gl.drawElements(gl.TRIANGLES, this.mesh.numIndices, gl.UNSIGNED_SHORT, 0);
@@ -588,12 +623,12 @@ MeshObject.prototype.bindTextures = function(gl) {
   gl.bindTexture(gl.TEXTURE_2D, this.texture);
   gl.uniform1i(this.shaderProgram.uniforms.textureSampler, 0);
 }
-MeshObject.prototype.draw = function(gl) {  // TODO: Take the camera as an argument
+MeshObject.prototype.draw = function(gl, modelWorld, worldView, projection) {
   // Breaking the draw method up into subroutines facilitates some flexibility
   // in the implementation of objects derived from MeshObject
   this.useShaderProgram(gl);
   this.prepareVertexBuffers(gl);
-  this.setMatrixUniforms(gl);
+  this.setMatrixUniforms(gl, modelWorld, worldView, projection);
   this.bindTextures(gl);
   this.drawElements(gl);
 }
@@ -683,17 +718,21 @@ var BilliardBall = function(number) {
 };
 BilliardBall.prototype = Object.create(MeshObject.prototype);
 BilliardBall.prototype.constructor = BilliardBall;
-BilliardBall.prototype.draw = function(gl) {
+BilliardBall.prototype.draw = function(gl, modelWorld, worldView, projection) {
+  var initialSize = modelWorld.size();
+  // TODO: Most of this can be moved to a generic implementation of draw() in the MeshObject class
   // Scale the ball (the mesh is unit size, i.e. 1 meter in diameter)
-  // FIXME: The ball should be using a matrix stack from the table, not making its own matrix.
-  this.modelViewMatrix = scalem(BALL_RADIUS, BALL_RADIUS, BALL_RADIUS);
+  modelWorld.push(scalem(BALL_RADIUS, BALL_RADIUS, BALL_RADIUS));
   // Rotate the ball
-  this.modelViewMatrix = mult(quatToMatrix(this.orientation), this.modelViewMatrix);
+  modelWorld.push(quatToMatrix(this.orientation));
   // Translate the ball into its position
-  this.modelViewMatrix = mult(translate(this.position[0], this.position[1], 0.0), this.modelViewMatrix);
-  // TODO: Translate the ball in front of the camera (with the world-view matrix)
+  modelWorld.push(translate(this.position[0], this.position[1], 0.0));
 
-  MeshObject.prototype.draw.call(this, gl);
+  // Actually draw ourselves
+  MeshObject.prototype.draw.call(this, gl, modelWorld, worldView, projection);
+
+  // Return the model-world transformation stack to its original state
+  modelWorld.unwind(initialSize);
 }
 BilliardBall.prototype.tick = function(dt) {
   if (length(this.velocity) < BALL_VELOCITY_EPSILON) {
@@ -726,7 +765,7 @@ BilliardBall.prototype.tick = function(dt) {
 //------------------------------------------------------------
 var BilliardTable = function(gamemode) {
   // Iherit from mesh object
-  MeshObject.call(this, "common/test_table.obj", "common/test_table.png", "billiardball");
+  MeshObject.call(this, "common/test_table_pockets.obj", "common/test.png", "billiardball");
 
   this.gamemode = gamemode;
   // Set game parameters based on the selected game mode
@@ -758,20 +797,20 @@ var BilliardTable = function(gamemode) {
   // Structures for broad-phase collision detection
   this.xBalls = this.balls.slice();
   this.yBalls = this.balls.slice();
+
+  // Collection of camera views for quick access to different camera angles 
 }
 BilliardTable.prototype = Object.create(MeshObject.prototype);
-BilliardTable.prototype.draw = function(gl) {
+BilliardTable.prototype.draw = function(gl, modelWorld, worldView, projection) {
   this.modelViewMatrix = scalem(1.0, 1.0, 1.0);  // FIXME: Use a matrix stack
   // Draw the billiard table
-  MeshObject.prototype.draw.call(this, gl);
-  // TODO: Transform the balls so they lie on the xy-plane, where the table
-  // model's surface is located
+  MeshObject.prototype.draw.call(this, gl, modelWorld, worldView, projection);
+  // TODO: Transform the balls so they lie on the table's surface
   // FIXME: Don't draw balls that have already been pocketed
   for (var i = 0; i < this.numBalls; ++i) {
     // Draw each ball
-    this.balls[i].draw(gl);
+    this.balls[i].draw(gl, modelWorld, worldView, projection);
   }
-  // TODO: Transform balls to one ball-radius away from the table surface
 }
 BilliardTable.prototype.tick = function(dt) {
   // TODO: Advance all balls by their velocities
@@ -899,7 +938,106 @@ BilliardTable.prototype.tick = function(dt) {
 //------------------------------------------------------------
 // Prototype for cameras
 //------------------------------------------------------------
-var Camera = function () {
+// TODO: Use named parameters to avoid confusion between perspective and orthographic.
+var Camera = function (position, orientation,  /* FIXME: Move position and orientation into a scene object class */
+    fov, aspect, near, far, ortho) {
+  this.position = position;
+  this.orientation = orientation;
+  this.fov = fov;
+  this.aspect = aspect;
+  this.near = near;
+  this.far = far;
+}
+Camera.prototype.setParentObject = function(parentObject) {
+  this.parentObject = parentObject;
+}
+Camera.prototype.worldViewTransformation = function() {
+  var worldView = new TransformationStack();
+  var cameraWorldCoordinates = this.position;
+  // The camera can be positioned relative to the origin or relative to some
+  // other object (e.g. the billiard table). In either case, we need to
+  // transform the camera into world space before computing the modelView
+  // matrix. In the latter case, we need to apply the transform from the parent
+  // object.
+  if (typeof parentObject != 'undefined') {
+    // FIXME: This parent-child object hierarchy has not been implemented yet...
+    // Transform the camera by its parent's transform
+    // NOTE: vec4() converts vectors in R^3 to points in affine space, i.e. the
+    // w component is set to 1.0
+    cameraWorldCoordinates = mult(vec4(this.position), parentObject.getTransformation());
+    /* FIXME: I don't even consider the parent's rotation here; ugh */
+    /* TODO: What I really need is a getWorldPosition() and getWorldOrientation() function that recursively determines the position and orientations of these objects */
+  }
+  // Translate the world so that the camera is at the origin
+  worldView.push(translate(scale(-1,cameraWorldCoordinates.slice(0,3))));
+  // TODO: Rotate the world so that the camera is oriented facing down the -z
+  // axis and has the correct roll. This amounts to rotating everything in the
+  // world by inverse of our camera's orientation.
+  worldView.push(quatToMatrix(qinverse(this.orientation)));
+
+  return worldView;
+}
+Camera.prototype.projectionTransformation = function() {
+  var projection = new TransformationStack();
+
+  // TODO: Check if we need to make an orthographic projection
+  projection.push(perspective(this.fov, this.aspect, this.near, this.far));
+
+  return projection;
+}
+Camera.prototype.lookAt = function(object) {
+  // TODO: Calculate the Z angle
+  // TODO: Rotate along the global Z axis
+  // TODO: Calculate the X angle
+  // TODO: Rotate along the local X axis
+}
+Camera.prototype.follow = function(object) {
+  // Look at an object (and follow it in tick())
+  this.lookAt(object);
+}
+Camera.prototype.rotateAbout = function(point, axis, angularVelocity) {
+  // TODO
+}
+Camera.prototype.transitionTo = function(camera, stepFunction, callback) {
+  // TODO
+}
+Camera.prototype.tick = function() {
+  // TODO: Animate the camera
+  if (typeof this.follow != 'undefined') {
+    this.lookAt(object);
+  }
+}
+
+//------------------------------------------------------------
+// Prototype for transformation stacks
+//------------------------------------------------------------
+/* NOTE: This object is used in lieu of using the call stack to remember
+ * transformations. Instead of passing matricies, we pass a reference to this
+ * stack. The advantages of this approach are probably just a matter of taste.
+ *
+ * Javascript doesn't have very good support for the RAII idiom, so pairing
+ * matrix push with pop is a PITA. Oh well?
+ */
+var TransformationStack = function() {
+
+  this.stack = [ scalem(1.0, 1.0, 1.0) ];  // There should be an ident()
+}
+TransformationStack.prototype.push = function(transform) {
+  var newTransform = mult(transform, this.peek());
+  this.stack.push(newTransform);
+}
+TransformationStack.prototype.peek = function() {
+  return this.stack[this.stack.length - 1];
+}
+TransformationStack.prototype.pop = function() {
+  return this.stack.pop();
+}
+TransformationStack.prototype.size = function() {
+  return this.stack.length;
+}
+TransformationStack.prototype.unwind = function(size) {
+  while (this.stack.length > size)
+    this.stack.pop();
 }
 
 //------------------------------------------------------------
@@ -938,6 +1076,24 @@ function qmult(q, r) {
       q[3]*r[3] - q[0]*r[0] - q[1]*r[1] - q[2]*r[2]
       );
 }
+function qconjugate(q) {
+  if (!Array.isArray(q) || q.length != 4)
+    throw "qconjugate(): the quaternion parameter must be a vec4";
+
+  var result = q.slice();  // Deep copy
+
+  for (var i = 0; i <= 2; ++i) {
+    result[i] = -result[i];  // Conjugate simply negates the vector part
+  }
+
+  return result;
+}
+function qinverse(q) {
+  if (!Array.isArray(q) || q.length != 4)
+    throw "qinverse(): the quaternion parameter must be a vec4";
+
+  return scale(1/dot(q,q),qconjugate(q));
+}
 function quatToMatrix(q) {
   return mat4(
       1-2*q[1]*q[1]-2*q[2]*q[2], 2*q[0]*q[1]-2*q[3]*q[2], 2*q[0]*q[2]+2*q[3]*q[1], 0,
@@ -961,3 +1117,10 @@ function collisionDisplacement(p, q, r) {
   var displacement = length(displacementVector);
   return scale((2*r - displacement)/(2*displacement), displacementVector);
 }
+
+//------------------------------------------------------------
+// Prototype for polygons (for use with SAT algorithm)
+//------------------------------------------------------------
+
+
+// TODO: Implement algorithm for Separating Axis Theorem collision detection
