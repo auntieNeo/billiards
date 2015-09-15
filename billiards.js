@@ -10,10 +10,11 @@ var TABLE_LENGTH = 254.0E-2;  // 254cm
 var TABLE_WIDTH = 127.0E-2;  // 127cm
 */
 // Eight-foot table
+// NOTE: These are the dimensions of the play area.
 var TABLE_LENGTH = 234.0E-2;  // 234cm
 var TABLE_WIDTH = 117.0E-2;  // 117cm
 // American-style ball
-var BALL_DIAMETER = 2*57.15E-3;  // 57.15mm
+var BALL_DIAMETER = 57.15E-3;  // 57.15mm
 var BALL_RADIUS = BALL_DIAMETER / 2;
 
 // Various billiards physics constants
@@ -40,7 +41,7 @@ var MAX_DT = 0.01;  // Arbitrary s
 var LARGE_DT = MAX_DT * 10;  // Arbitrary limit for frame drop warning
 
 // Camera data (copied from Blender)
-MAIN_CAMERA_POSITION = vec3(0, -3.68597, 1.71157);
+MAIN_CAMERA_POSITION = vec3(0, -3.40709, 1.5657);
 MAIN_CAMERA_ORIENTATION = vec4(0.518, -0.004, -0.017, 0.855);
 MAIN_CAMERA_FOV = 49.134;  // Degrees
 MAIN_CAMERA_ASPECT = 2.0;  // TODO: Adjust this to the exact aspect of the table/window
@@ -126,8 +127,8 @@ window.onload = function init() {
   gl.viewport(0, 0, canvasWidth, canvasHeight);
   gl.clearColor(0.180, 0.505, 0.074, 1.0);
   gl.enable(gl.DEPTH_TEST);
-//  gl.enable(gl.CULL_FACE);
-//  gl.cullFace(gl.BACK);
+  gl.disable(gl.CULL_FACE);
+//  gl.cullFace(gl.FRONT);
 
   //----------------------------------------
   // TODO: load shaders and initialize attribute
@@ -145,6 +146,18 @@ window.onload = function init() {
   //----------------------------------------
   // TODO: write event handlers
   //----------------------------------------
+  window.onkeydown = function(event) {
+    switch (event.keyCode) {
+      case 38:  // Up Arrow
+        billiardTable.mesh.numIndices += billiardTable.mesh.numIndices/2;
+        console.log("billiardTable.mesh.numIndices: " + billiardTable.mesh.numIndices);
+        break;
+      case 40:  // Down Arrow
+        billiardTable.mesh.numIndices -= billiardTable.mesh.numIndices/2;
+        console.log("billiardTable.mesh.numIndices: " + billiardTable.mesh.numIndices);
+        break;
+    }
+  }
 
   //----------------------------------------
   // Load assets
@@ -174,7 +187,7 @@ function startGame() {
 
 var geometryAssets = [
   "common/unit_billiard_ball.obj",
-  "common/test_table_pockets.obj"
+  "common/billiard_table.obj"
 ];
 var textureAssets = [
   "common/cue_ball.png",
@@ -193,7 +206,7 @@ var textureAssets = [
   "common/billiard_ball_13.png",
   "common/billiard_ball_14.png",
   "common/billiard_ball_15.png",
-  "common/test_table_pockets.png",
+  "common/billiard_table_simple_colors.png",
   "common/test.png"
 ];
 var shaderAssets = [ { name: "billiardball", vert: "billiardball-vert", frag: "billiardball-frag",
@@ -430,7 +443,8 @@ function loadObjMesh(text) {
                 if (reIndexedVerticies[k].uv == vertex.uv) {
                   // We found the vertex; use its existing index
                   vertexIndex = mesh.positions.length + k;
-                  break;
+                  // TODO: Investigate why re-indexing is not working.
+//                  break;  // FIXME: Uncomment this line to reveal huge bug.
                 }
               }
               if (k == reIndexedVerticies.length) {
@@ -495,14 +509,14 @@ function loadObjMesh(text) {
   // Uncomment to debug vertex data
   /*
   for (var i = 0; i < vertexAttributes.length; i += 8) {
-    var msg = "";
+    var msg = "i=" + i + ": ";
     for (var j = 0; j < 8; j++) {
       msg += j + ":" + vertexAttributes[i + j] + "  ";
     }
     console.log(msg);
   }
   for (var i = 0; i < vertexIndices.length; i += 3) {
-    var msg = "";
+    var msg = "i=" + i + ": ";
     for (var j = 0; j < 3; j++) {
       msg += j + ":" + vertexIndices[i + j] + "  ";
     }
@@ -765,7 +779,7 @@ BilliardBall.prototype.tick = function(dt) {
 //------------------------------------------------------------
 var BilliardTable = function(gamemode) {
   // Iherit from mesh object
-  MeshObject.call(this, "common/test_table_pockets.obj", "common/test.png", "billiardball");
+  MeshObject.call(this, "common/billiard_table.obj", "common/billiard_table_simple_colors.png", "billiardball");
 
   this.gamemode = gamemode;
   // Set game parameters based on the selected game mode
