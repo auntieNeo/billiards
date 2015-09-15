@@ -41,9 +41,9 @@ var MAX_DT = 0.01;  // Arbitrary s
 var LARGE_DT = MAX_DT * 10;  // Arbitrary limit for frame drop warning
 
 // Camera data (copied from Blender)
-MAIN_CAMERA_POSITION = vec3(0, -3.40709, 1.5657);
-MAIN_CAMERA_ORIENTATION = vec4(0.518, -0.004, -0.017, 0.855);
-MAIN_CAMERA_FOV = 49.134;  // Degrees
+MAIN_CAMERA_POSITION = vec3(3.01678, -1.58346, 1.5657);
+MAIN_CAMERA_ORIENTATION = vec4(0.463, 0.275, 0.437, 0.720);
+MAIN_CAMERA_FOV = 49.134/2;  // Degrees
 MAIN_CAMERA_ASPECT = 2.0;  // TODO: Adjust this to the exact aspect of the table/window
 MAIN_CAMERA_NEAR = .1;
 MAIN_CAMERA_FAR = 100;
@@ -125,7 +125,7 @@ window.onload = function init() {
   // Configure WebGL
   //----------------------------------------
   gl.viewport(0, 0, canvasWidth, canvasHeight);
-  gl.clearColor(0.180, 0.505, 0.074, 1.0);
+  gl.clearColor(0.0, 0.0, 0.0, 1.0);
   gl.enable(gl.DEPTH_TEST);
   gl.disable(gl.CULL_FACE);
 //  gl.cullFace(gl.FRONT);
@@ -569,7 +569,27 @@ function loadTexture(image) {
 //------------------------------------------------------------
 // Prototype for mesh objects
 //------------------------------------------------------------
-var MeshObject = function(meshAsset, textureAsset, shaderAsset) {
+// TODO: Derive this from a "SceneObject" that has orientation and position but
+// no assets.
+var MeshObject = function(
+    meshAsset, textureAsset, shaderAsset,
+    position, orientation) {
+  if (typeof position == 'undefined') {
+    this.position = vec3(0.0, 0.0, 0.0);
+  } else if (!Array.isArray(position) || position.length != 3) {
+    throw "MeshObject(): position must be vec3";
+  } else {
+    this.position = position;
+  }
+  if (typeof orientation == 'undefined') {
+    this.orientation = vec4(0.0, 0.0, 0.0, 1.0);
+  }
+  else if (!Array.isArray(orientation) || orientation.length != 4) {
+    throw "MeshObject(): orientation must be vec4";
+  } else {
+    this.orientation = orientation;
+  }
+
   this.mesh = assets[meshAsset];
   this.texture = assets[textureAsset];
   this.shaderProgram = assets[shaderAsset];
@@ -638,6 +658,12 @@ MeshObject.prototype.bindTextures = function(gl) {
   gl.uniform1i(this.shaderProgram.uniforms.textureSampler, 0);
 }
 MeshObject.prototype.draw = function(gl, modelWorld, worldView, projection) {
+  var initialSize = modelWorld.size();
+  // Rotate the object
+  modelWorld.push(quatToMatrix(this.orientation));
+  // Translate the object into its position
+  modelWorld.push(translate(this.position));
+
   // Breaking the draw method up into subroutines facilitates some flexibility
   // in the implementation of objects derived from MeshObject
   this.useShaderProgram(gl);
@@ -645,12 +671,15 @@ MeshObject.prototype.draw = function(gl, modelWorld, worldView, projection) {
   this.setMatrixUniforms(gl, modelWorld, worldView, projection);
   this.bindTextures(gl);
   this.drawElements(gl);
+
+  // Return the model-world transformation stack to its original state
+  modelWorld.unwind(initialSize);
 }
 
 //------------------------------------------------------------
 // Prototype for billiard ball objects
 //------------------------------------------------------------
-var BilliardBall = function(number) {
+var BilliardBall = function(number, position, orientation) {
   this.number = number;
 
   // Determine the ball texture to use
@@ -723,24 +752,19 @@ var BilliardBall = function(number) {
   }
 
   // Iherit from mesh object
-  MeshObject.call(this, "common/unit_billiard_ball.obj", textureFile, "billiardball");
+  MeshObject.call(this,
+      "common/unit_billiard_ball.obj", textureFile, "billiardball",
+      position, orientation);
 
   // Initial physical properties
-  this.position = vec2(0.0, 0.0);
-  this.orientation = quat(0.0, 0.0, 0.0, 1.0);
-  this.velocity = vec2(1.0, 1.0);
+  this.velocity = vec2(1.0, 1.0, 0.0);
 };
 BilliardBall.prototype = Object.create(MeshObject.prototype);
 BilliardBall.prototype.constructor = BilliardBall;
 BilliardBall.prototype.draw = function(gl, modelWorld, worldView, projection) {
   var initialSize = modelWorld.size();
-  // TODO: Most of this can be moved to a generic implementation of draw() in the MeshObject class
   // Scale the ball (the mesh is unit size, i.e. 1 meter in diameter)
   modelWorld.push(scalem(BALL_RADIUS, BALL_RADIUS, BALL_RADIUS));
-  // Rotate the ball
-  modelWorld.push(quatToMatrix(this.orientation));
-  // Translate the ball into its position
-  modelWorld.push(translate(this.position[0], this.position[1], 0.0));
 
   // Actually draw ourselves
   MeshObject.prototype.draw.call(this, gl, modelWorld, worldView, projection);
@@ -749,8 +773,10 @@ BilliardBall.prototype.draw = function(gl, modelWorld, worldView, projection) {
   modelWorld.unwind(initialSize);
 }
 BilliardBall.prototype.tick = function(dt) {
+  this.velocity[2] = 0.0;  // Make sure the ball does not leave the billiard table surface
+  // TODO: Implement 3-dimensional velocity for balls falling in pockets
   if (length(this.velocity) < BALL_VELOCITY_EPSILON) {
-    this.velocity = vec2(0.0, 0.0);
+    this.velocity = vec3(0.0, 0.0, 0.0);
   } else {
   // Account for rolling resistance, i.e. friction
   this.velocity = add(this.velocity, scale(-dt*BALL_CLOTH_ROLLING_RESISTANCE_ACCELERATION, normalize(this.velocity)));
@@ -765,7 +791,7 @@ BilliardBall.prototype.tick = function(dt) {
     // from a rotational axis and an angle. In short: find the rotation axis
     // and angular displacement to make a quaternion.
     // FIXME: I can probably avoid computing the length twice here
-    var rotationAxis = normalize(cross(vec3(0.0, 0.0, 1.0), vec3(displacement)));
+    var rotationAxis = normalize(cross(vec3(0.0, 0.0, 1.0), displacement));
     var angularDisplacement = length(displacement) / BALL_RADIUS;
     this.orientation = qmult(quat(rotationAxis, angularDisplacement), this.orientation);
     // Displace the ball
@@ -777,7 +803,7 @@ BilliardBall.prototype.tick = function(dt) {
 //------------------------------------------------------------
 // Prototype for billiard tables
 //------------------------------------------------------------
-var BilliardTable = function(gamemode) {
+var BilliardTable = function(gamemode, position, orientation) {
   // Iherit from mesh object
   MeshObject.call(this, "common/billiard_table.obj", "common/billiard_table_simple_colors.png", "billiardball");
 
@@ -799,11 +825,12 @@ var BilliardTable = function(gamemode) {
   // Make objects for each ball
   this.balls = [];
   for (var i = 0; i < this.numBalls; ++i) {
-    this.balls.push(new BilliardBall(i));
+    // Position the balls so that they lie on the table's surface
+    this.balls.push(new BilliardBall(i, vec3(0.0, 0.0, BALL_RADIUS)));
   }
 
   // TODO: Arrange balls in a billiards pattern
-  var offset = vec2(0.1, 0.1);
+  var offset = vec3(0.1, 0.1, 0.0);
   for (var i = 0; i < this.numBalls; ++i) {
     this.balls[i].position = add(this.balls[i].position, scale(i, offset));
   }
@@ -816,15 +843,19 @@ var BilliardTable = function(gamemode) {
 }
 BilliardTable.prototype = Object.create(MeshObject.prototype);
 BilliardTable.prototype.draw = function(gl, modelWorld, worldView, projection) {
-  this.modelViewMatrix = scalem(1.0, 1.0, 1.0);  // FIXME: Use a matrix stack
+  var initialSize = modelWorld.size();
+
   // Draw the billiard table
   MeshObject.prototype.draw.call(this, gl, modelWorld, worldView, projection);
-  // TODO: Transform the balls so they lie on the table's surface
+
   // FIXME: Don't draw balls that have already been pocketed
   for (var i = 0; i < this.numBalls; ++i) {
     // Draw each ball
     this.balls[i].draw(gl, modelWorld, worldView, projection);
   }
+
+  // Return the model-world transformation stack to its original state
+  modelWorld.unwind(initialSize);
 }
 BilliardTable.prototype.tick = function(dt) {
   // TODO: Advance all balls by their velocities
@@ -833,9 +864,9 @@ BilliardTable.prototype.tick = function(dt) {
     this.balls[i].tick(dt);
   }
 
-  // TODO: Simulate the physics of billiards in 2D
+  // Simulate the collision physics of the billiard balls in 2D
 
-  // TODO: Determine ball-ball collisions
+  // Detect ball-ball collisions
   // First, broad-phase collision detection with sweep and prune algorithm
   // NOTE: Insertion sort could be used here because (1) we need to iterate to
   // find all potential collisions anyway and (2) insertion sort has an
@@ -898,11 +929,12 @@ BilliardTable.prototype.tick = function(dt) {
               this.yBalls[j].position, this.yBalls[i].position);
           this.yBalls[i].velocity = iVelocity;
           this.yBalls[j].velocity = jVelocity;
-          // TODO: Recursive resolution of collision
+          // Displace the balls so that they are no longer colliding
           var iDisplacement = collisionDisplacement(this.yBalls[i].position, this.yBalls[j].position, BALL_RADIUS);
           var jDisplacement = collisionDisplacement(this.yBalls[j].position, this.yBalls[i].position, BALL_RADIUS);
           this.yBalls[i].position = add(this.yBalls[i].position, scale(1.01, iDisplacement));
           this.yBalls[j].position = add(this.yBalls[j].position, scale(1.01, jDisplacement));
+          // TODO: Recursive resolution of collision
         }
       }
     }
@@ -915,7 +947,7 @@ BilliardTable.prototype.tick = function(dt) {
       // Get the ball out of the wall
       this.xBalls[i].position[0] = -(TABLE_LENGTH/2 - BALL_RADIUS);  // TODO: Recursively correct collision moves
       // Compute the reflection for the velocity
-      this.xBalls[i].velocity = reflection(this.xBalls[i].velocity, vec2(1.0, 0.0));
+      this.xBalls[i].velocity = reflection(this.xBalls[i].velocity, vec3(1.0, 0.0, 0.0));
     } else break;
   }
   // Consider eastmost balls
@@ -924,7 +956,7 @@ BilliardTable.prototype.tick = function(dt) {
       // Get the ball out of the wall
       this.xBalls[i].position[0] = TABLE_LENGTH/2 - BALL_RADIUS;  // TODO: Recursively correct collision moves
       // Compute the reflection for the velocity
-      this.xBalls[i].velocity = reflection(this.xBalls[i].velocity, vec2(-1.0, 0.0));
+      this.xBalls[i].velocity = reflection(this.xBalls[i].velocity, vec3(-1.0, 0.0, 0.0));
     } else break;
   }
   // Consider southmost balls
@@ -933,7 +965,7 @@ BilliardTable.prototype.tick = function(dt) {
       // Get the ball out of the wall
       this.yBalls[i].position[1] = -(TABLE_WIDTH/2 - BALL_RADIUS);  // TODO: Recursively correct collision moves
       // Compute the reflection for the velocity
-      this.yBalls[i].velocity = reflection(this.yBalls[i].velocity, vec2(0.0, 1.0));
+      this.yBalls[i].velocity = reflection(this.yBalls[i].velocity, vec3(0.0, 1.0, 0.0));
     } else break;
   }
   // Consider northmost balls
@@ -942,11 +974,11 @@ BilliardTable.prototype.tick = function(dt) {
       // Get the ball out of the wall
       this.yBalls[i].position[1] = TABLE_WIDTH/2 - BALL_RADIUS;  // TODO: Recursively correct collision moves
       // Compute the reflection for the velocity
-      this.yBalls[i].velocity = reflection(this.yBalls[i].velocity, vec2(0.0, -1.0));
+      this.yBalls[i].velocity = reflection(this.yBalls[i].velocity, vec3(0.0, -1.0, 0.0));
     } else break;
   }
 
-  // TODO: Determine ball-hole collisions
+  // TODO: Determine ball-pocket collisions
 }
 
 //------------------------------------------------------------
