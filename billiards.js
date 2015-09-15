@@ -148,6 +148,14 @@ window.onload = function init() {
   //----------------------------------------
   window.onkeydown = function(event) {
     switch (event.keyCode) {
+      case 37:  // Left Arrow
+        billiardTable.orientation = qmult(billiardTable.orientation, quat(0.0, 0.00087, 0.0, 1.0));
+        break;
+      case 39:  // Right Arrow
+        billiardTable.orientation = qmult(billiardTable.orientation, qinverse(quat(0.0, 0.00087, 0.0, 1.0)));
+        break;
+
+      /* Debugging for broken verticies */
       case 38:  // Up Arrow
         billiardTable.mesh.numIndices += billiardTable.mesh.numIndices/2;
         console.log("billiardTable.mesh.numIndices: " + billiardTable.mesh.numIndices);
@@ -172,7 +180,7 @@ function startGame() {
   // TODO: Create game objects
   //----------------------------------------
   // TODO: Allow user to select different game modes
-  billiardTable = new BilliardTable(NINE_BALL_MODE);
+  billiardTable = new BilliardTable(NINE_BALL_MODE, vec3(0.0, 0.0, 0.5));
 
   mainCamera = new Camera(MAIN_CAMERA_POSITION,
                           MAIN_CAMERA_ORIENTATION,
@@ -573,7 +581,7 @@ function loadTexture(image) {
 // no assets.
 var MeshObject = function(
     meshAsset, textureAsset, shaderAsset,
-    position, orientation) {
+    position, orientation, scale) {
   if (typeof position == 'undefined') {
     this.position = vec3(0.0, 0.0, 0.0);
   } else if (!Array.isArray(position) || position.length != 3) {
@@ -582,12 +590,25 @@ var MeshObject = function(
     this.position = position;
   }
   if (typeof orientation == 'undefined') {
-    this.orientation = vec4(0.0, 0.0, 0.0, 1.0);
+    this.orientation = quat(0.0, 0.0, 0.0, 1.0);
   }
   else if (!Array.isArray(orientation) || orientation.length != 4) {
     throw "MeshObject(): orientation must be vec4";
   } else {
     this.orientation = orientation;
+  }
+  if (typeof orientation == 'undefined') {
+    this.orientation = quat(0.0, 0.0, 0.0, 1.0);
+  }
+  else if (!Array.isArray(orientation) || orientation.length != 4) {
+    throw "MeshObject(): orientation must be vec4";
+  } else {
+    this.orientation = orientation;
+  }
+  if (typeof scale == 'undefined') {
+    this.scale = 1.0;
+  } else {
+    this.scale = scale;
   }
 
   this.mesh = assets[meshAsset];
@@ -659,10 +680,12 @@ MeshObject.prototype.bindTextures = function(gl) {
 }
 MeshObject.prototype.draw = function(gl, modelWorld, worldView, projection) {
   var initialSize = modelWorld.size();
-  // Rotate the object
-  modelWorld.push(quatToMatrix(this.orientation));
   // Translate the object into its position
   modelWorld.push(translate(this.position));
+  // Rotate the object with respect to the model's origin
+  modelWorld.push(quatToMatrix(this.orientation));
+  // Scale the object proportionally
+  modelWorld.push(scalem(this.scale, this.scale, this.scale));
 
   // Breaking the draw method up into subroutines facilitates some flexibility
   // in the implementation of objects derived from MeshObject
@@ -671,6 +694,10 @@ MeshObject.prototype.draw = function(gl, modelWorld, worldView, projection) {
   this.setMatrixUniforms(gl, modelWorld, worldView, projection);
   this.bindTextures(gl);
   this.drawElements(gl);
+
+  // Draw our children (if we have them) relative to ourselves
+  if (typeof this.drawChildren != 'undefined')
+    this.drawChildren(gl, modelWorld, worldView, projection);
 
   // Return the model-world transformation stack to its original state
   modelWorld.unwind(initialSize);
@@ -758,20 +785,10 @@ var BilliardBall = function(number, position, orientation) {
 
   // Initial physical properties
   this.velocity = vec2(1.0, 1.0, 0.0);
+  this.scale = BALL_RADIUS;  // The mesh has unit 1m radius
 };
 BilliardBall.prototype = Object.create(MeshObject.prototype);
 BilliardBall.prototype.constructor = BilliardBall;
-BilliardBall.prototype.draw = function(gl, modelWorld, worldView, projection) {
-  var initialSize = modelWorld.size();
-  // Scale the ball (the mesh is unit size, i.e. 1 meter in diameter)
-  modelWorld.push(scalem(BALL_RADIUS, BALL_RADIUS, BALL_RADIUS));
-
-  // Actually draw ourselves
-  MeshObject.prototype.draw.call(this, gl, modelWorld, worldView, projection);
-
-  // Return the model-world transformation stack to its original state
-  modelWorld.unwind(initialSize);
-}
 BilliardBall.prototype.tick = function(dt) {
   this.velocity[2] = 0.0;  // Make sure the ball does not leave the billiard table surface
   // TODO: Implement 3-dimensional velocity for balls falling in pockets
@@ -805,7 +822,9 @@ BilliardBall.prototype.tick = function(dt) {
 //------------------------------------------------------------
 var BilliardTable = function(gamemode, position, orientation) {
   // Iherit from mesh object
-  MeshObject.call(this, "common/billiard_table.obj", "common/billiard_table_simple_colors.png", "billiardball");
+  MeshObject.call(this,
+      "common/billiard_table.obj", "common/billiard_table_simple_colors.png", "billiardball",
+      position, orientation);
 
   this.gamemode = gamemode;
   // Set game parameters based on the selected game mode
@@ -842,11 +861,8 @@ var BilliardTable = function(gamemode, position, orientation) {
   // Collection of camera views for quick access to different camera angles 
 }
 BilliardTable.prototype = Object.create(MeshObject.prototype);
-BilliardTable.prototype.draw = function(gl, modelWorld, worldView, projection) {
+BilliardTable.prototype.drawChildren = function(gl, modelWorld, worldView, projection) {
   var initialSize = modelWorld.size();
-
-  // Draw the billiard table
-  MeshObject.prototype.draw.call(this, gl, modelWorld, worldView, projection);
 
   // FIXME: Don't draw balls that have already been pocketed
   for (var i = 0; i < this.numBalls; ++i) {
@@ -1014,12 +1030,12 @@ Camera.prototype.worldViewTransformation = function() {
     /* FIXME: I don't even consider the parent's rotation here; ugh */
     /* TODO: What I really need is a getWorldPosition() and getWorldOrientation() function that recursively determines the position and orientations of these objects */
   }
+  // Rotate the world so that the camera is oriented facing down the -z axis
+  // and has the correct roll. This amounts to rotating everything in the world
+  // by inverse of our camera's orientation.
+  worldView.push(quatToMatrix(qinverse(this.orientation)));
   // Translate the world so that the camera is at the origin
   worldView.push(translate(scale(-1,cameraWorldCoordinates.slice(0,3))));
-  // TODO: Rotate the world so that the camera is oriented facing down the -z
-  // axis and has the correct roll. This amounts to rotating everything in the
-  // world by inverse of our camera's orientation.
-  worldView.push(quatToMatrix(qinverse(this.orientation)));
 
   return worldView;
 }
@@ -1041,8 +1057,8 @@ Camera.prototype.follow = function(object) {
   // Look at an object (and follow it in tick())
   this.lookAt(object);
 }
-Camera.prototype.rotateAbout = function(point, axis, angularVelocity) {
-  // TODO
+Camera.prototype.rotateAbout = function(object, axis, angularVelocity) {
+  // TODO: 
 }
 Camera.prototype.transitionTo = function(camera, stepFunction, callback) {
   // TODO
@@ -1069,7 +1085,7 @@ var TransformationStack = function() {
   this.stack = [ scalem(1.0, 1.0, 1.0) ];  // There should be an ident()
 }
 TransformationStack.prototype.push = function(transform) {
-  var newTransform = mult(transform, this.peek());
+  var newTransform = mult(this.peek(), transform);
   this.stack.push(newTransform);
 }
 TransformationStack.prototype.peek = function() {
