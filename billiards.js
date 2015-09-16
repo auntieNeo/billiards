@@ -1099,9 +1099,12 @@ Camera.prototype.lookAt = function(object, preserveRoll) {
   zAxisCameraSpace[2] = 0.0;  // Project onto xy-plane in camera space
   zAxisCameraSpace = normalize(zAxisCameraSpace);  // NOTE: atan2 doesn't require normalization
   // NOTE: We treat the camera's Y-axis as the X-axis argument to atan2(y,x)
-  rollAnglePostRotation = Math.atan2(zAxisCameraSpace[0], zAxisCameraSpace[1]);
+//  rollAnglePostRotation = Math.atan2(zAxisCameraSpace[0], -zAxisCameraSpace[1]);
+  var cameraYAxis = vec4(0.0, 1.0, 0.0, 0.0);
+  rollAnglePostRotation = Math.atan2(length(cross(zAxisCameraSpace, cameraYAxis)), dot(zAxisCameraSpace, cameraYAxis));
   console.log("rollAnglePostRotation: " + rollAnglePostRotation);
   this.orientation = qmult(this.orientation, quat(vec3(0.0, 0.0, 1.0), rollAngle - rollAnglePostRotation));
+  this.orientation = normalize(this.orientation);  // Be nice to our quaternion
 
   // TODO: Add some assertions to make sure I didn't screw up the camera roll
 }
