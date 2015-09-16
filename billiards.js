@@ -27,12 +27,25 @@ var BALL_CLOTH_ROLLING_RESISTANCE_ACCELERATION =
 var CUE_BALL_MASS = 0.17;  // kg
 var NUMBERED_BALL_MASS = 0.16;  // kg
 
+// Ball rack positions
+// Balls in racks are arranged in a triangular pattern. See:
+// <https://en.wikipedia.org/wiki/Circle_packing>
+var TRIANGLE_RACK = [];
+for (var i = 0; i < 5; ++i) {
+  for (var j = 0; j <= i; ++j) {
+    TRIANGLE_RACK.push(vec2((TABLE_LENGTH/4) + i*Math.sqrt(3*BALL_RADIUS*BALL_RADIUS),
+                            j*(BALL_DIAMETER) - i*(BALL_RADIUS)));
+    console.log("Pushed ball to triangle rack (" + TRIANGLE_RACK[TRIANGLE_RACK.length - 1][0] + "," + TRIANGLE_RACK[TRIANGLE_RACK.length - 1][1] + ")");
+  }
+}
+var DIAMOND_RACK = [];
+
 // Gameplay modes
 var EIGHT_BALL_MODE = 1;
 var NINE_BALL_MODE = 2;
 var STRAIGHT_POOL_MODE = 3;
 // Gameplay constants
-var EIGHT_BALL_NUM_BALLS = 9;
+var EIGHT_BALL_NUM_BALLS = 16;
 var NINE_BALL_NUM_BALLS = 10;
 var STRAIGHT_POOL_NUM_BALLS = 16;
 
@@ -229,7 +242,7 @@ function startGame() {
   // TODO: Create game objects
   //----------------------------------------
   // TODO: Allow user to select different game modes
-  billiardTable = new BilliardTable(NINE_BALL_MODE);
+  billiardTable = new BilliardTable(EIGHT_BALL_MODE);
 
   mainCamera = new Camera(MAIN_CAMERA_POSITION,
                           MAIN_CAMERA_ORIENTATION,
@@ -859,7 +872,7 @@ var BilliardBall = function(number, position, orientation) {
       position, orientation);
 
   // Initial physical properties
-  this.velocity = vec2(1.0, 1.0, 0.0);
+  this.velocity = vec3(0.0, 0.0, 0.0);
   this.scale = BALL_RADIUS;  // The mesh has unit 1m radius
 };
 BilliardBall.prototype = Object.create(MeshObject.prototype);
@@ -906,6 +919,15 @@ var BilliardTable = function(gamemode, position, orientation) {
   switch (gamemode) {
     case EIGHT_BALL_MODE:
       this.numBalls = EIGHT_BALL_NUM_BALLS;
+      // Make objects for each ball
+      this.balls = [];
+      // Place the cue ball somewhere in "the kitchen"
+      // FIXME: The cue ball should be placed by the player
+      this.balls.push(new BilliardBall(0, vec3((-3/8) * TABLE_LENGTH, 0.0, BALL_RADIUS)));
+      for (var i = 1; i < this.numBalls; ++i) {
+        // Position the balls in a diamond rack
+        this.balls.push(new BilliardBall(i, vec3(TRIANGLE_RACK[i-1][0], TRIANGLE_RACK[i-1][1], BALL_RADIUS)));
+      }
       break;
     case NINE_BALL_MODE:
       this.numBalls = NINE_BALL_NUM_BALLS;
@@ -916,18 +938,6 @@ var BilliardTable = function(gamemode, position, orientation) {
     default:
       window.alert("Unknown game mode!");
   }
-  // Make objects for each ball
-  this.balls = [];
-  for (var i = 0; i < this.numBalls; ++i) {
-    // Position the balls so that they lie on the table's surface
-    this.balls.push(new BilliardBall(i, vec3(0.0, 0.0, BALL_RADIUS)));
-  }
-
-  // TODO: Arrange balls in a billiards pattern
-  var offset = vec3(0.1, 0.1, 0.0);
-  for (var i = 0; i < this.numBalls; ++i) {
-    this.balls[i].position = add(this.balls[i].position, scale(i, offset));
-  }
 
   // Structures for broad-phase collision detection
   this.xBalls = this.balls.slice();
@@ -937,7 +947,6 @@ var BilliardTable = function(gamemode, position, orientation) {
 }
 BilliardTable.prototype = Object.create(MeshObject.prototype);
 BilliardTable.prototype.saveState = function() {
-  console.log("We're saving the state...");
   // This method essentially performs a deep-ish copy of the BilliardTable
   // object, especially the simulation state. Javascript doesn't really provide
   // a deep copy idiom for objects, so we do it manually. Combined with
@@ -948,7 +957,6 @@ BilliardTable.prototype.saveState = function() {
   // Save the state (initial positions and pocketed status) of all of the
   // balls)
   state.balls = [];
-  console.log("this.balls.length: " + this.balls.length);
   for (var i = 0; i < this.balls.length; ++i) {
     var ball = {
       position: this.balls[i].position.slice(),
@@ -962,13 +970,11 @@ BilliardTable.prototype.saveState = function() {
   return state;
 }
 BilliardTable.prototype.restoreState = function(state) {
-  console.log("We're restoring the state...");
   // This method perfoms the reverse operation of saveState
 
   // TODO: Restore the state of the cue stick
   // Save the state (initial positions and pocketed status) of all of the
   // balls)
-  console.log("state.balls.length: " + state.balls.length);
   for (var i = 0; i < state.balls.length; ++i) {
     this.balls[i].position = state.balls[i].position.slice();
     this.balls[i].orientation = state.balls[i].orientation.slice();
