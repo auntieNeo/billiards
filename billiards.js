@@ -58,14 +58,12 @@ var DETERMINISTIC_DT = true;
 MAIN_CAMERA_POSITION = vec3(3.01678, -1.58346, 1.5657);
 MAIN_CAMERA_ORIENTATION = vec4(0.463, 0.275, 0.437, 0.720);
 MAIN_CAMERA_FOV = 49.134/2;  // Degrees
-MAIN_CAMERA_ASPECT = 2.0;  // TODO: Adjust this to the exact aspect of the table/window
 MAIN_CAMERA_NEAR = .1;
 MAIN_CAMERA_FAR = 100;
 
 FRONT_SIDE_POCKET_CAMERA_POSITION = vec3(0.0, 0.57724, 0.055582);
 FRONT_SIDE_POCKET_CAMERA_ORIENTATION = quat(-0.001, -0.510, -0.860, -0.002);
 FRONT_SIDE_POCKET_CAMERA_FOV = 100/2;  // Degrees
-FRONT_SIDE_POCKET_CAMERA_ASPECT = 2.0;  // TODO: Adjust this to the exact aspect of the table/window
 FRONT_SIDE_POCKET_CAMERA_NEAR = .01;
 FRONT_SIDE_POCKET_CAMERA_FAR = 100;
 
@@ -132,6 +130,7 @@ function tick() {
 var billiardTable;
 var mainCamera;  // TODO: Move this inside the billiardTable object, so that it is always relative to the table surface
 var frontSidePocketCamera;
+var aspect;
 
 
 //------------------------------------------------------------
@@ -146,7 +145,7 @@ function render() {
   // view)?  Was the que ball just struck? Is the target ball close to a pocket
   // (pocket view)?
   var worldView = frontSidePocketCamera.worldViewTransformation();
-  var projection = frontSidePocketCamera.projectionTransformation();
+  var projection = frontSidePocketCamera.projectionTransformation(aspect);
 
   billiardTable.draw(gl, modelWorld, worldView, projection);
 }
@@ -161,7 +160,7 @@ window.onload = function init() {
   var canvasWidth = canvas.width;
   var canvasHeight = canvas.height;
 
-  var aspect = canvas.clientWidth / canvas.clientHeight;
+  aspect = canvas.clientWidth / canvas.clientHeight;
 
   gl = WebGLUtils.setupWebGL(canvas);
   if (!gl) {
@@ -187,7 +186,9 @@ window.onload = function init() {
   // TODO: write event handlers
   //----------------------------------------
   window.onresize = function(event) {
+    aspect = canvas.clientWidth / canvas.clientHeight;
     // FIXME: According to Mozilla, we should not resize so often; it should be throttled
+    gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
   };
   window.onkeydown = function(event) {
     switch (event.keyCode) {
@@ -247,7 +248,6 @@ function startGame() {
   mainCamera = new Camera(MAIN_CAMERA_POSITION,
                           MAIN_CAMERA_ORIENTATION,
                           MAIN_CAMERA_FOV,
-                          MAIN_CAMERA_ASPECT,
                           MAIN_CAMERA_NEAR,
                           MAIN_CAMERA_FAR);
 //  mainCamera.lookAt(billiardTable);  // XXX: Change this to follow, and put more camera instructions in the game logic?
@@ -256,7 +256,6 @@ function startGame() {
       FRONT_SIDE_POCKET_CAMERA_POSITION,
       FRONT_SIDE_POCKET_CAMERA_ORIENTATION,
       FRONT_SIDE_POCKET_CAMERA_FOV,
-      FRONT_SIDE_POCKET_CAMERA_ASPECT,
       FRONT_SIDE_POCKET_CAMERA_NEAR,
       FRONT_SIDE_POCKET_CAMERA_FAR);
   frontSidePocketCamera.follow(billiardTable.balls[8]);
@@ -1121,7 +1120,7 @@ BilliardTable.prototype.tick = function(dt) {
 // Prototype for cameras
 //------------------------------------------------------------
 var Camera = function (position, orientation,
-    fov, aspect, near, far, ortho) {
+    fov, near, far, ortho) {
   // Iherit from SceneObject
   SceneObject.call(this, position, orientation);
   this.fov = fov;
@@ -1159,11 +1158,11 @@ Camera.prototype.worldViewTransformation = function() {
 
   return worldView;
 }
-Camera.prototype.projectionTransformation = function() {
+Camera.prototype.projectionTransformation = function(aspect) {
   var projection = new TransformationStack();
 
   // TODO: Check if we need to make an orthographic projection
-  projection.push(perspective(this.fov, this.aspect, this.near, this.far));
+  projection.push(perspective(this.fov, aspect, this.near, this.far));
 
   return projection;
 }
