@@ -39,6 +39,7 @@ var STRAIGHT_POOL_NUM_BALLS = 16;
 // Animation constants
 var MAX_DT = 0.01;  // Arbitrary s
 var LARGE_DT = MAX_DT * 10;  // Arbitrary limit for frame drop warning
+var DETERMINISTIC_DT = true;
 
 // Camera data (copied from Blender)
 MAIN_CAMERA_POSITION = vec3(3.01678, -1.58346, 1.5657);
@@ -55,6 +56,7 @@ FRONT_SIDE_POCKET_CAMERA_ASPECT = 2.0;  // TODO: Adjust this to the exact aspect
 FRONT_SIDE_POCKET_CAMERA_NEAR = .01;
 FRONT_SIDE_POCKET_CAMERA_FAR = 100;
 
+
 function animate(dt) {
   // Compute the new positions of the balls on the table
   billiardTable.tick(dt);
@@ -66,11 +68,12 @@ function animate(dt) {
 var lastTime;
 var tooSlow = false;
 var totalElapsed = 0.0;
+var dt = 0.0;
 function tick() {
   // Determine the time elapsed
   if (typeof lastTime == 'undefined')
     lastTime = Date.now();
-  var dt = (Date.now() - lastTime) / 1000.0;
+  dt += (Date.now() - lastTime) / 1000.0;
   lastTime = Date.now();
   totalElapsed += dt;
   if (dt > LARGE_DT && !tooSlow && (totalElapsed > 3.0)) {
@@ -90,7 +93,16 @@ function tick() {
 
   requestAnimFrame(tick);
   render();
-  animate(dt);
+
+  if (DETERMINISTIC_DT) {
+    if (dt >= MAX_DT) {
+      animate(MAX_DT);
+      dt -= MAX_DT;
+    }
+  } else {
+    animate(dt);
+    dt = 0.0;
+  }
 }
 
 // TODO: Put these inside some sort of game state object
