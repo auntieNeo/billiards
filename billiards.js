@@ -933,6 +933,15 @@ var BilliardTable = function(gamemode, position, orientation) {
             FRONT_SIDE_POCKET_CAMERA_ORIENTATION)
   }
   this.currentCamera = this.cameras.main;
+
+  // Register events
+  var billiardTable = this;
+  window.onmousedown = function(event) {
+    billiardTable.mouseDownEvent(event);
+  }
+  window.onmouseup = function(event) {
+    billiardTable.mouseUpEvent(event);
+  }
 }
 BilliardTable.prototype = Object.create(MeshObject.prototype);
 BilliardTable.prototype.setCurrentCamera = function(camera) {
@@ -1125,6 +1134,22 @@ BilliardTable.prototype.tickGameLogic = function(dt) {
 }
 BilliardTable.prototype.tickCameras = function(dt) {
   this.currentCamera.tick(dt);
+}
+// Various user input event handlers for BilliardTable (most user interaction
+// is processed here)
+BilliardTable.prototype.mouseDownEvent = function(event) {
+  this.mouseStart = vec2(event.clientX, event.clientY);
+}
+BilliardTable.prototype.mouseUpEvent = function(event) {
+  this.mouseEnd = vec2(event.clientX, event.clientY);
+  if (typeof this.mouseStart != 'undefined') {
+    // FIXME: I should consider the total size of the screen when computing the drag vector
+    var mouseDragVector = subtract(this.mouseEnd, this.mouseStart);
+    console.log("Mouse drag vector: (" + mouseDragVector[0] + "," + mouseDragVector[1] + ")");
+    this.mouseStart = undefined;
+    // TODO: Consider the game state before moving the cue ball; I should probably add a BilliardTable.startCueStick() function
+    this.balls[0].velocity = vec3(mouseDragVector[0], mouseDragVector[1], 0.0);
+  }
 }
 
 //------------------------------------------------------------
