@@ -48,11 +48,19 @@ MAIN_CAMERA_ASPECT = 2.0;  // TODO: Adjust this to the exact aspect of the table
 MAIN_CAMERA_NEAR = .1;
 MAIN_CAMERA_FAR = 100;
 
+FRONT_SIDE_POCKET_CAMERA_POSITION = vec3(0.0, 0.57724, 0.055582);
+FRONT_SIDE_POCKET_CAMERA_ORIENTATION = quat(-0.001, -0.510, -0.860, -0.002);
+FRONT_SIDE_POCKET_CAMERA_FOV = 100/2;  // Degrees
+FRONT_SIDE_POCKET_CAMERA_ASPECT = 2.0;  // TODO: Adjust this to the exact aspect of the table/window
+FRONT_SIDE_POCKET_CAMERA_NEAR = .01;
+FRONT_SIDE_POCKET_CAMERA_FAR = 100;
+
 function animate(dt) {
   // Compute the new positions of the balls on the table
   billiardTable.tick(dt);
   // Animate the cameras
-  mainCamera.tick(dt);
+//  mainCamera.tick(dt);
+  frontSidePocketCamera.tick(dt);
 }
 
 var lastTime;
@@ -88,6 +96,7 @@ function tick() {
 // TODO: Put these inside some sort of game state object
 var billiardTable;
 var mainCamera;  // TODO: Move this inside the billiardTable object, so that it is always relative to the table surface
+var frontSidePocketCamera;
 
 
 //------------------------------------------------------------
@@ -101,8 +110,8 @@ function render() {
   // table with perspective view)? Is the user dragging the cue stick(top ortho
   // view)?  Was the que ball just struck? Is the target ball close to a pocket
   // (pocket view)?
-  var worldView = mainCamera.worldViewTransformation();
-  var projection = mainCamera.projectionTransformation();
+  var worldView = frontSidePocketCamera.worldViewTransformation();
+  var projection = frontSidePocketCamera.projectionTransformation();
 
   billiardTable.draw(gl, modelWorld, worldView, projection);
 }
@@ -112,8 +121,12 @@ function render() {
 //------------------------------------------------------------
 window.onload = function init() {
   var canvas = document.getElementById("gl-canvas");
+  canvas.width = document.body.clientWidth;
+  canvas.height = document.body.clientHeight;
   var canvasWidth = canvas.width;
   var canvasHeight = canvas.height;
+
+  var aspect = canvas.clientWidth / canvas.clientHeight;
 
   gl = WebGLUtils.setupWebGL(canvas);
   if (!gl) {
@@ -123,7 +136,7 @@ window.onload = function init() {
   //----------------------------------------
   // Configure WebGL
   //----------------------------------------
-  gl.viewport(0, 0, canvasWidth, canvasHeight);
+  gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
   gl.clearColor(0.0, 0.0, 0.0, 1.0);
   gl.enable(gl.DEPTH_TEST);
   gl.disable(gl.CULL_FACE);
@@ -138,6 +151,9 @@ window.onload = function init() {
   //----------------------------------------
   // TODO: write event handlers
   //----------------------------------------
+  window.onresize = function(event) {
+    // FIXME: According to Mozilla, we should not resize so often; it should be throttled
+  };
   window.onkeydown = function(event) {
     switch (event.keyCode) {
       case 37:  // Left Arrow
@@ -147,7 +163,25 @@ window.onload = function init() {
         billiardTable.orientation = qmult(billiardTable.orientation, qinverse(quat(0.0, 0.00087, 0.0, 1.0)));
         break;
 
+      case 33:  // Page Up
+        frontSidePocketCamera.position[1] += 0.001
+        console.log("frontSidePocketCamera Y: " + frontSidePocketCamera.position[1]);
+        break;
+      case 34:  // Page Down
+        frontSidePocketCamera.position[1] -= 0.001
+        console.log("frontSidePocketCamera Y: " + frontSidePocketCamera.position[1]);
+        break;
+      case 38:  // Up Arrow
+        frontSidePocketCamera.position[2] += 0.001
+        console.log("frontSidePocketCamera Z: " + frontSidePocketCamera.position[2]);
+        break;
+      case 40:  // Down Arrow
+        frontSidePocketCamera.position[2] -= 0.001
+        console.log("frontSidePocketCamera Z: " + frontSidePocketCamera.position[2]);
+        break;
+
       /* Debugging for broken verticies */
+      /*
       case 38:  // Up Arrow
         billiardTable.mesh.numIndices += billiardTable.mesh.numIndices/2;
         console.log("billiardTable.mesh.numIndices: " + billiardTable.mesh.numIndices);
@@ -156,6 +190,7 @@ window.onload = function init() {
         billiardTable.mesh.numIndices -= billiardTable.mesh.numIndices/2;
         console.log("billiardTable.mesh.numIndices: " + billiardTable.mesh.numIndices);
         break;
+      */
     }
   }
 
@@ -174,7 +209,7 @@ function startGame() {
   // TODO: Allow user to select different game modes
   billiardTable = new BilliardTable(NINE_BALL_MODE);
 
-  mainCamera = new Camera(add(MAIN_CAMERA_POSITION, vec3(2.0, 0.0, 0.0)),
+  mainCamera = new Camera(MAIN_CAMERA_POSITION,
                           MAIN_CAMERA_ORIENTATION,
                           MAIN_CAMERA_FOV,
                           MAIN_CAMERA_ASPECT,
@@ -182,6 +217,14 @@ function startGame() {
                           MAIN_CAMERA_FAR);
 //  mainCamera.lookAt(billiardTable);  // XXX: Change this to follow, and put more camera instructions in the game logic?
   mainCamera.follow(billiardTable.balls[8]);
+  frontSidePocketCamera = new Camera(
+      FRONT_SIDE_POCKET_CAMERA_POSITION,
+      FRONT_SIDE_POCKET_CAMERA_ORIENTATION,
+      FRONT_SIDE_POCKET_CAMERA_FOV,
+      FRONT_SIDE_POCKET_CAMERA_ASPECT,
+      FRONT_SIDE_POCKET_CAMERA_NEAR,
+      FRONT_SIDE_POCKET_CAMERA_FAR);
+  frontSidePocketCamera.follow(billiardTable.balls[8]);
 
   // Start the asynchronous game loop
   tick();
