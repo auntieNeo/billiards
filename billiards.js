@@ -69,6 +69,7 @@ var lastTime;
 var tooSlow = false;
 var totalElapsed = 0.0;
 var dt = 0.0;
+var initialState;  // XXX
 function tick() {
   // Determine the time elapsed
   if (typeof lastTime == 'undefined')
@@ -93,6 +94,15 @@ function tick() {
 
   requestAnimFrame(tick);
   render();
+
+  // XXX: This is a test of replays; this should be moved elsewhere
+  if (typeof initialState == 'undefined') {
+    initialState = billiardTable.saveState();
+  }
+  if (totalElapsed > 10.0 && initialState) {
+    billiardTable.restoreState(initialState);
+    initialState = false;
+  }
 
   if (DETERMINISTIC_DT) {
     if (dt >= MAX_DT) {
@@ -926,6 +936,45 @@ var BilliardTable = function(gamemode, position, orientation) {
   // Collection of camera views for quick access to different camera angles 
 }
 BilliardTable.prototype = Object.create(MeshObject.prototype);
+BilliardTable.prototype.saveState = function() {
+  console.log("We're saving the state...");
+  // This method essentially performs a deep-ish copy of the BilliardTable
+  // object, especially the simulation state. Javascript doesn't really provide
+  // a deep copy idiom for objects, so we do it manually. Combined with
+  // DETERMINISTIC_DT, this method implements replay functionality.
+  var state = {};
+  // TODO: Save the state of the cue stick (presumably either at rest or just
+  // before striking the cue ball)
+  // Save the state (initial positions and pocketed status) of all of the
+  // balls)
+  state.balls = [];
+  console.log("this.balls.length: " + this.balls.length);
+  for (var i = 0; i < this.balls.length; ++i) {
+    var ball = {
+      position: this.balls[i].position.slice(),
+      orientation: this.balls[i].orientation.slice(),
+      velocity: this.balls[i].velocity.slice()
+      // TODO: Also store pocketed status
+    };
+    state.balls.push(ball);
+  }
+
+  return state;
+}
+BilliardTable.prototype.restoreState = function(state) {
+  console.log("We're restoring the state...");
+  // This method perfoms the reverse operation of saveState
+
+  // TODO: Restore the state of the cue stick
+  // Save the state (initial positions and pocketed status) of all of the
+  // balls)
+  console.log("state.balls.length: " + state.balls.length);
+  for (var i = 0; i < state.balls.length; ++i) {
+    this.balls[i].position = state.balls[i].position.slice();
+    this.balls[i].orientation = state.balls[i].orientation.slice();
+    this.balls[i].velocity = state.balls[i].velocity.slice();
+  }
+}
 BilliardTable.prototype.drawChildren = function(gl, modelWorld, worldView, projection) {
   var initialSize = modelWorld.size();
 
