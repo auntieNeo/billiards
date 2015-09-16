@@ -83,9 +83,6 @@ function tick() {
   animate(dt);
 }
 
-// FIXME: Need to move these somewhere
-var projectionMatrix;
-
 // TODO: Put these inside some sort of game state object
 var billiardTable;
 var mainCamera;  // TODO: Move this inside the billiardTable object, so that it is always relative to the table surface
@@ -182,12 +179,13 @@ function startGame() {
   // TODO: Allow user to select different game modes
   billiardTable = new BilliardTable(NINE_BALL_MODE, vec3(0.0, 0.0, 0.5));
 
-  mainCamera = new Camera(MAIN_CAMERA_POSITION,
+  mainCamera = new Camera(add(MAIN_CAMERA_POSITION, vec3(2.0, 0.0, 0.0)),
                           MAIN_CAMERA_ORIENTATION,
                           MAIN_CAMERA_FOV,
                           MAIN_CAMERA_ASPECT,
                           MAIN_CAMERA_NEAR,
                           MAIN_CAMERA_FAR);
+  mainCamera.lookAt(billiardTable);  // XXX: Change this to follow, and put more camera instructions in the game logic?
 
   // Start the asynchronous game loop
   tick();
@@ -575,17 +573,14 @@ function loadTexture(image) {
 
 
 //------------------------------------------------------------
-// Prototype for mesh objects
+// Prototype for scene objects
+// (objects with position and orientation in the scene)
 //------------------------------------------------------------
-// TODO: Derive this from a "SceneObject" that has orientation and position but
-// no assets.
-var MeshObject = function(
-    meshAsset, textureAsset, shaderAsset,
-    position, orientation, scale) {
+var SceneObject = function(position, orientation) {
   if (typeof position == 'undefined') {
     this.position = vec3(0.0, 0.0, 0.0);
   } else if (!Array.isArray(position) || position.length != 3) {
-    throw "MeshObject(): position must be vec3";
+    throw "SceneObject(): position must be vec3";
   } else {
     this.position = position;
   }
@@ -593,18 +588,36 @@ var MeshObject = function(
     this.orientation = quat(0.0, 0.0, 0.0, 1.0);
   }
   else if (!Array.isArray(orientation) || orientation.length != 4) {
-    throw "MeshObject(): orientation must be vec4";
+    throw "SceneObject(): orientation must be vec4";
   } else {
     this.orientation = orientation;
   }
-  if (typeof orientation == 'undefined') {
-    this.orientation = quat(0.0, 0.0, 0.0, 1.0);
-  }
-  else if (!Array.isArray(orientation) || orientation.length != 4) {
-    throw "MeshObject(): orientation must be vec4";
-  } else {
-    this.orientation = orientation;
-  }
+}
+SceneObject.prototype.setParent = function(object) {
+  this.parentObject = object;
+}
+SceneObject.prototype.getWorldPosition = function(object) {
+  if (typeof this.parentObject != 'undefined')
+    return mult(this.position, translate(this.parentObject.getWorldPosition()));
+  return this.position;
+}
+SceneObject.prototype.getWorldOrientation = function(object) {
+  /*
+  if (typeof this.parentObject != 'undefined')
+    return qmult(this.orientation, this.parentObject.orientation);  // FIXME: This is totally untested (and confusing!)
+    */
+  return this.orientation;
+}
+
+//------------------------------------------------------------
+// Prototype for mesh objects
+//------------------------------------------------------------
+var MeshObject = function(
+    meshAsset, textureAsset, shaderAsset,
+    position, orientation, scale) {
+  // Iherit from SceneObject
+  SceneObject.call(this, position, orientation);
+
   if (typeof scale == 'undefined') {
     this.scale = 1.0;
   } else {
@@ -615,6 +628,7 @@ var MeshObject = function(
   this.texture = assets[textureAsset];
   this.shaderProgram = assets[shaderAsset];
 };
+MeshObject.prototype = Object.create(SceneObject.prototype);
 MeshObject.prototype.useShaderProgram = function(gl) {
   gl.useProgram(this.shaderProgram);
 }
@@ -821,7 +835,7 @@ BilliardBall.prototype.tick = function(dt) {
 // Prototype for billiard tables
 //------------------------------------------------------------
 var BilliardTable = function(gamemode, position, orientation) {
-  // Iherit from mesh object
+  // Iherit from SceneObject
   MeshObject.call(this,
       "common/billiard_table.obj", "common/billiard_table_simple_colors.png", "billiardball",
       position, orientation);
@@ -1000,16 +1014,16 @@ BilliardTable.prototype.tick = function(dt) {
 //------------------------------------------------------------
 // Prototype for cameras
 //------------------------------------------------------------
-// TODO: Use named parameters to avoid confusion between perspective and orthographic.
-var Camera = function (position, orientation,  /* FIXME: Move position and orientation into a scene object class */
+var Camera = function (position, orientation,
     fov, aspect, near, far, ortho) {
-  this.position = position;
-  this.orientation = orientation;
+  // Iherit from SceneObject
+  SceneObject.call(this, position, orientation);
   this.fov = fov;
   this.aspect = aspect;
   this.near = near;
   this.far = far;
 }
+Camera.prototype = Object.create(SceneObject.prototype);
 Camera.prototype.setParentObject = function(parentObject) {
   this.parentObject = parentObject;
 }
@@ -1033,7 +1047,7 @@ Camera.prototype.worldViewTransformation = function() {
   // Rotate the world so that the camera is oriented facing down the -z axis
   // and has the correct roll. This amounts to rotating everything in the world
   // by inverse of our camera's orientation.
-  worldView.push(quatToMatrix(qinverse(this.orientation)));
+  worldView.push(quatToMatrix(qinverse(this.getWorldOrientation())));
   // Translate the world so that the camera is at the origin
   worldView.push(translate(scale(-1,cameraWorldCoordinates.slice(0,3))));
 
@@ -1047,11 +1061,53 @@ Camera.prototype.projectionTransformation = function() {
 
   return projection;
 }
-Camera.prototype.lookAt = function(object) {
-  // TODO: Calculate the Z angle
-  // TODO: Rotate along the global Z axis
-  // TODO: Calculate the X angle
-  // TODO: Rotate along the local X axis
+// TODO: Change lookAt into a utility function that returns a quaternion rotation
+Camera.prototype.lookAt = function(object, preserveRoll) {
+  if (typeof preserveRoll == 'undefined')
+    preserveRoll = false;
+
+  var rollAngle;
+  if (preserveRoll) {
+    // TODO: Test this code
+    // TODO: Store the "Roll" of the camera as an angle between the world's
+    // Z-axis and the camera's Y-axis. The roll is lost in the next step.
+    var zAxisCameraSpace = mult(vec4(0.0, 0.0, 1.0, 0.0), quatToMatrix(qinverse(this.getWorldOrientation())));
+    zAxisCameraSpace[2] = 0.0;  // Project onto xy-plane in camera space
+    zAxisCameraSpace = normalize(zAxisCameraSpace);
+    rollAngle = Math.acos(dot(vec4(0.0, 1.0, 0.0, 0.0), zAxisCameraSpace))
+      * (length(cross(vec4(0.0, 1.0, 0.0, 0.0), zAxisCameraSpace)) < 0 ? -1.0 : 1.0);
+    console.log("rollAngle: " + rollAngle);
+  } else {
+    rollAngle = 0.0;
+  }
+
+  // Rotate the camera to look at the object by calculating the angle between
+  // the current camera direction and the desired direction and constructing a
+  // quaternion rotation.
+  var cameraDirection = mult(vec4(0.0, 0.0, -1.0, 0.0), quatToMatrix(this.getWorldOrientation()));
+  var objectDirection = vec4(subtract(object.getWorldPosition(), this.getWorldPosition()));
+  objectDirection[3] = 0.0;
+  objectDirection = normalize(objectDirection);
+  var rotationAxis = vec4(cross(cameraDirection, objectDirection));
+  rotationAxis[3] = 0.0;
+  var angle = Math.acos(dot(cameraDirection, objectDirection))
+                * (length(rotationAxis) < 0 ? -1.0 : 1.0);
+  rotationAxis = vec3(mult(normalize(rotationAxis), quatToMatrix(qinverse(this.getWorldOrientation()))));
+  this.orientation = qmult(this.orientation, quat(rotationAxis, angle));
+
+  // TODO: Correct the roll of the camera orientation, as that information was
+  // lost by converting the quaternion orientation to a vector. We rotate the
+  // camera so that the camera's Y-axis aligns with the Z axis in world space.
+  // To do this we first need to compute the camera roll after rotation. Then
+  // we rotate the camera by the difference between the initial camera roll and
+  // the roll after rotation.
+  var zAxisCameraSpace = mult(vec4(0.0, 0.0, 1.0, 0.0), quatToMatrix(qinverse(this.getWorldOrientation())));
+  zAxisCameraSpace[2] = 0.0;  // Project onto xy-plane in camera space
+  zAxisCameraSpace = normalize(zAxisCameraSpace);
+  rollAnglePostRotation = Math.acos(dot(zAxisCameraSpace, vec4(0.0, 1.0, 0.0, 0.0)))
+    * (length(cross(zAxisCameraSpace, vec4(0.0, 1.0, 0.0, 0.0))) < 0 ? -1.0 : 1.0);
+  console.log("rollAnglePostRotation: " + rollAnglePostRotation);
+//  this.orientation = qmult(this.orientation, quat(vec3(0.0, 0.0, 1.0), rollAngle - rollAnglePostRotation));
 }
 Camera.prototype.follow = function(object) {
   // Look at an object (and follow it in tick())
@@ -1157,12 +1213,15 @@ function qinverse(q) {
   return scale(1/dot(q,q),qconjugate(q));
 }
 function quatToMatrix(q) {
-  return mat4(
+  var result = mat4(
       1-2*q[1]*q[1]-2*q[2]*q[2], 2*q[0]*q[1]-2*q[3]*q[2], 2*q[0]*q[2]+2*q[3]*q[1], 0,
       2*q[0]*q[1]+2*q[3]*q[2], 1-2*q[0]*q[0]-2*q[2]*q[2], 2*q[1]*q[2]-2*q[3]*q[0], 0,
       2*q[0]*q[2]-2*q[3]*q[1], 2*q[1]*q[2]+2*q[3]*q[0], 1-2*q[0]*q[0]-2*q[1]*q[1], 0,
       0, 0, 0, 1
       );
+  result.matrix = true;
+
+  return result;
 }
 
 function reflection(v, n) {

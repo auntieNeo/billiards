@@ -302,6 +302,14 @@ function mult( u, v )
         result.matrix = true;
 
         return result;
+    } else if ( v.matrix ) {  // Vector-matrix multiplication
+      if ( u.length != v[0].length ) {
+          throw "mult(): vector and matrix are not the same dimension";
+      }
+      for ( var i = 0; i < v.length; ++i ) {
+        result.push(dot(u, v[i]));
+      }
+      return result;
     }
     else {
         if ( u.length != v.length ) {
@@ -580,8 +588,7 @@ function length( u )
 
 //----------------------------------------------------------------------------
 
-// Ugh, I _HATE_ this geometry library. normalize() was causing ugly
-// side-effects, so I changed it.
+// NOTE: normalize() was causing ugly side-effects, so I changed it.
 function normalize( u, excludeLastComponent )
 {
     var len = length( u );
