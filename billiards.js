@@ -177,7 +177,7 @@ function startGame() {
   // TODO: Create game objects
   //----------------------------------------
   // TODO: Allow user to select different game modes
-  billiardTable = new BilliardTable(NINE_BALL_MODE, vec3(0.0, 0.0, 0.5));
+  billiardTable = new BilliardTable(NINE_BALL_MODE);
 
   mainCamera = new Camera(add(MAIN_CAMERA_POSITION, vec3(2.0, 0.0, 0.0)),
                           MAIN_CAMERA_ORIENTATION,
@@ -1074,8 +1074,8 @@ Camera.prototype.lookAt = function(object, preserveRoll) {
     var zAxisCameraSpace = mult(vec4(0.0, 0.0, 1.0, 0.0), quatToMatrix(qinverse(this.getWorldOrientation())));
     zAxisCameraSpace[2] = 0.0;  // Project onto xy-plane in camera space
     zAxisCameraSpace = normalize(zAxisCameraSpace);
-    rollAngle = Math.acos(dot(vec4(0.0, 1.0, 0.0, 0.0), zAxisCameraSpace))
-      * (length(cross(vec4(0.0, 1.0, 0.0, 0.0), zAxisCameraSpace)) < 0 ? -1.0 : 1.0);
+    // NOTE: We treat the camera's Y-axis as the X-axis argument to atan2(y,x)
+    rollAngle = Math.atan2(zAxisCameraSpace[0], zAxisCameraSpace[1]);
     console.log("rollAngle: " + rollAngle);
   } else {
     rollAngle = 0.0;
@@ -1103,11 +1103,13 @@ Camera.prototype.lookAt = function(object, preserveRoll) {
   // the roll after rotation.
   var zAxisCameraSpace = mult(vec4(0.0, 0.0, 1.0, 0.0), quatToMatrix(qinverse(this.getWorldOrientation())));
   zAxisCameraSpace[2] = 0.0;  // Project onto xy-plane in camera space
-  zAxisCameraSpace = normalize(zAxisCameraSpace);
-  rollAnglePostRotation = Math.acos(dot(zAxisCameraSpace, vec4(0.0, 1.0, 0.0, 0.0)))
-    * (length(cross(zAxisCameraSpace, vec4(0.0, 1.0, 0.0, 0.0))) < 0 ? -1.0 : 1.0);
+  zAxisCameraSpace = normalize(zAxisCameraSpace);  // NOTE: atan2 doesn't require normalization
+  // NOTE: We treat the camera's Y-axis as the X-axis argument to atan2(y,x)
+  rollAnglePostRotation = Math.atan2(zAxisCameraSpace[0], zAxisCameraSpace[1]);
   console.log("rollAnglePostRotation: " + rollAnglePostRotation);
-//  this.orientation = qmult(this.orientation, quat(vec3(0.0, 0.0, 1.0), rollAngle - rollAnglePostRotation));
+  this.orientation = qmult(this.orientation, quat(vec3(0.0, 0.0, 1.0), rollAngle - rollAnglePostRotation));
+
+  // TODO: Add some assertions to make sure I didn't screw up the camera roll
 }
 Camera.prototype.follow = function(object) {
   // Look at an object (and follow it in tick())
