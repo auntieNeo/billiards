@@ -51,6 +51,8 @@ MAIN_CAMERA_FAR = 100;
 function animate(dt) {
   // Compute the new positions of the balls on the table
   billiardTable.tick(dt);
+  // Animate the cameras
+  mainCamera.tick(dt);
 }
 
 var lastTime;
@@ -131,13 +133,6 @@ window.onload = function init() {
   // TODO: load shaders and initialize attribute
   // buffers
   //----------------------------------------
-  // TODO: Move the matrix initialization somewhere else
-  projectionMatrix = ortho(-TABLE_LENGTH/1.2, TABLE_LENGTH/1.2, -TABLE_WIDTH/1.2, TABLE_WIDTH/1.2, -10000, 10000);
-//  projectionMatrix = ortho(-100, 100, -100, 100, 1, -1);
-//  modelViewMatrix = mult(scalem(0.1, 0.1, 0.1), translate(0, 0, 50));
-//  projectionMatrix = scalem(1.0, 1.0, 1.0);
-//  modelViewMatrix = translate(0, 0, 50);
-  modelViewMatrix = scalem(1.0, 1.0, 1.0);
   gl.lineWidth(0.5);
 
   //----------------------------------------
@@ -185,7 +180,8 @@ function startGame() {
                           MAIN_CAMERA_ASPECT,
                           MAIN_CAMERA_NEAR,
                           MAIN_CAMERA_FAR);
-  mainCamera.lookAt(billiardTable);  // XXX: Change this to follow, and put more camera instructions in the game logic?
+//  mainCamera.lookAt(billiardTable);  // XXX: Change this to follow, and put more camera instructions in the game logic?
+  mainCamera.follow(billiardTable.balls[8]);
 
   // Start the asynchronous game loop
   tick();
@@ -1084,15 +1080,13 @@ Camera.prototype.lookAt = function(object, preserveRoll) {
   // Rotate the camera to look at the object by calculating the angle between
   // the current camera direction and the desired direction and constructing a
   // quaternion rotation.
-  var cameraDirection = mult(vec4(0.0, 0.0, -1.0, 0.0), quatToMatrix(this.getWorldOrientation()));
+  var cameraDirection = vec4(0.0, 0.0, -1.0, 0.0);
   var objectDirection = vec4(subtract(object.getWorldPosition(), this.getWorldPosition()));
   objectDirection[3] = 0.0;
+  objectDirection = mult(objectDirection, quatToMatrix(qinverse(this.getWorldOrientation())));
   objectDirection = normalize(objectDirection);
-  var rotationAxis = vec4(cross(cameraDirection, objectDirection));
-  rotationAxis[3] = 0.0;
-  var angle = Math.acos(dot(cameraDirection, objectDirection))
-                * (length(rotationAxis) < 0 ? -1.0 : 1.0);
-  rotationAxis = vec3(mult(normalize(rotationAxis), quatToMatrix(qinverse(this.getWorldOrientation()))));
+  var rotationAxis = cross(cameraDirection, objectDirection);
+  var angle = Math.acos(dot(cameraDirection, objectDirection));
   this.orientation = qmult(this.orientation, quat(rotationAxis, angle));
 
   // TODO: Correct the roll of the camera orientation, as that information was
@@ -1112,8 +1106,12 @@ Camera.prototype.lookAt = function(object, preserveRoll) {
   // TODO: Add some assertions to make sure I didn't screw up the camera roll
 }
 Camera.prototype.follow = function(object) {
-  // Look at an object (and follow it in tick())
+  // Look at the object (and follow it in tick())
   this.lookAt(object);
+  this.followObject = object;
+}
+Camera.prototype.stopFollow = function() {
+  this.followObject = undefined;
 }
 Camera.prototype.rotateAbout = function(object, axis, angularVelocity) {
   // TODO: 
@@ -1123,8 +1121,8 @@ Camera.prototype.transitionTo = function(camera, stepFunction, callback) {
 }
 Camera.prototype.tick = function() {
   // TODO: Animate the camera
-  if (typeof this.follow != 'undefined') {
-    this.lookAt(object);
+  if (typeof this.followObject != 'undefined') {
+    this.lookAt(this.followObject);
   }
 }
 
