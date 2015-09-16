@@ -69,11 +69,8 @@ FRONT_SIDE_POCKET_CAMERA_FAR = 100;
 
 
 function animate(dt) {
-  // Compute the new positions of the balls on the table
+  // Simulate physics, game state, and cameras in BilliardTable
   billiardTable.tick(dt);
-  // Animate the cameras
-//  mainCamera.tick(dt);
-  frontSidePocketCamera.tick(dt);
 }
 
 var lastTime;
@@ -129,8 +126,6 @@ function tick() {
 // TODO: Put these inside some sort of game state object
 var billiardTable;
 var mainCamera;  // TODO: Move this inside the billiardTable object, so that it is always relative to the table surface
-var frontSidePocketCamera;
-var aspect;
 
 
 //------------------------------------------------------------
@@ -140,12 +135,10 @@ function render() {
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
   var modelWorld = new TransformationStack();
-  // TODO: Determine the camera to draw (e.g. are we idling (rotate around the
-  // table with perspective view)? Is the user dragging the cue stick(top ortho
-  // view)?  Was the que ball just struck? Is the target ball close to a pocket
-  // (pocket view)?
-  var worldView = frontSidePocketCamera.worldViewTransformation();
-  var projection = frontSidePocketCamera.projectionTransformation(aspect);
+
+  var worldView = billiardTable.currentCamera.worldViewTransformation();
+//  var projection = billiardTable.currentCamera.projectionTransformation(gl.drawingBufferWidth/gl.drawingBufferHeight);
+  var projection = billiardTable.currentCamera.projectionTransformation(canvas.clientWidth/canvas.clientHeight);
 
   billiardTable.draw(gl, modelWorld, worldView, projection);
 }
@@ -153,14 +146,11 @@ function render() {
 //------------------------------------------------------------
 // Initialization
 //------------------------------------------------------------
+var canvas;
 window.onload = function init() {
-  var canvas = document.getElementById("gl-canvas");
+  canvas = document.getElementById("gl-canvas");
   canvas.width = document.body.clientWidth;
   canvas.height = document.body.clientHeight;
-  var canvasWidth = canvas.width;
-  var canvasHeight = canvas.height;
-
-  aspect = canvas.clientWidth / canvas.clientHeight;
 
   gl = WebGLUtils.setupWebGL(canvas);
   if (!gl) {
@@ -186,8 +176,6 @@ window.onload = function init() {
   // TODO: write event handlers
   //----------------------------------------
   window.onresize = function(event) {
-    aspect = canvas.clientWidth / canvas.clientHeight;
-    // FIXME: According to Mozilla, we should not resize so often; it should be throttled
     gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
   };
   window.onkeydown = function(event) {
@@ -244,21 +232,6 @@ function startGame() {
   //----------------------------------------
   // TODO: Allow user to select different game modes
   billiardTable = new BilliardTable(EIGHT_BALL_MODE);
-
-  mainCamera = new Camera(MAIN_CAMERA_POSITION,
-                          MAIN_CAMERA_ORIENTATION,
-                          MAIN_CAMERA_FOV,
-                          MAIN_CAMERA_NEAR,
-                          MAIN_CAMERA_FAR);
-//  mainCamera.lookAt(billiardTable);  // XXX: Change this to follow, and put more camera instructions in the game logic?
-  mainCamera.follow(billiardTable.balls[8]);
-  frontSidePocketCamera = new Camera(
-      FRONT_SIDE_POCKET_CAMERA_POSITION,
-      FRONT_SIDE_POCKET_CAMERA_ORIENTATION,
-      FRONT_SIDE_POCKET_CAMERA_FOV,
-      FRONT_SIDE_POCKET_CAMERA_NEAR,
-      FRONT_SIDE_POCKET_CAMERA_FAR);
-  frontSidePocketCamera.follow(billiardTable.balls[8]);
 
   // Start the asynchronous game loop
   tick();
@@ -943,8 +916,28 @@ var BilliardTable = function(gamemode, position, orientation) {
   this.yBalls = this.balls.slice();
 
   // Collection of camera views for quick access to different camera angles 
+  this.cameras = {
+    main: new Camera(
+            { projection: 'perspective',
+              fov: MAIN_CAMERA_FOV,
+              near: MAIN_CAMERA_NEAR,
+              far: MAIN_CAMERA_FAR },
+            MAIN_CAMERA_POSITION,
+            MAIN_CAMERA_ORIENTATION),
+    frontSidePocket: new Camera(
+            { projection: 'perspective',
+              fov: FRONT_SIDE_POCKET_CAMERA_FOV,
+              near: FRONT_SIDE_POCKET_CAMERA_NEAR,
+              far: FRONT_SIDE_POCKET_CAMERA_FAR },
+            FRONT_SIDE_POCKET_CAMERA_POSITION,
+            FRONT_SIDE_POCKET_CAMERA_ORIENTATION)
+  }
+  this.currentCamera = this.cameras.main;
 }
 BilliardTable.prototype = Object.create(MeshObject.prototype);
+BilliardTable.prototype.setCurrentCamera = function(camera) {
+  this.currentCamera = camera;
+}
 BilliardTable.prototype.saveState = function() {
   // This method essentially performs a deep-ish copy of the BilliardTable
   // object, especially the simulation state. Javascript doesn't really provide
@@ -993,11 +986,18 @@ BilliardTable.prototype.drawChildren = function(gl, modelWorld, worldView, proje
   modelWorld.unwind(initialSize);
 }
 BilliardTable.prototype.tick = function(dt) {
-  // TODO: Advance all balls by their velocities
+  this.tickSimulation(dt);
+  this.tickGameLogic(dt);
+  this.tickCameras(dt);
+}
+BilliardTable.prototype.tickSimulation = function(dt) {
+  // Advance all balls by their velocities
   // FIXME: Don't loop through balls that have already been pocketed
   for (var i = 0; i < this.numBalls; ++i) {
     this.balls[i].tick(dt);
   }
+
+  // TODO: Simulate the effect of the cue stick on the cue ball
 
   // Simulate the collision physics of the billiard balls in 2D
 
@@ -1115,18 +1115,40 @@ BilliardTable.prototype.tick = function(dt) {
 
   // TODO: Determine ball-pocket collisions
 }
+BilliardTable.prototype.tickGameLogic = function(dt) {
+  // TODO: Choose cameras that are most appropriate/interesting by using the game state and Camera.isInView()
+  this.currentCamera.follow(billiardTable.balls[8]);
+  // TODO: Determine the camera to draw (e.g. are we idling (rotate around the
+  // table with perspective view)? Is the user dragging the cue stick(top ortho
+  // view)?  Was the que ball just struck? Is the target ball close to a pocket
+  // (pocket view)?
+}
+BilliardTable.prototype.tickCameras = function(dt) {
+  this.currentCamera.tick(dt);
+}
 
 //------------------------------------------------------------
 // Prototype for cameras
 //------------------------------------------------------------
-var Camera = function (position, orientation,
-    fov, near, far, ortho) {
+var Camera = function (properties, position, orientation) {
   // Iherit from SceneObject
   SceneObject.call(this, position, orientation);
-  this.fov = fov;
-  this.aspect = aspect;
-  this.near = near;
-  this.far = far;
+  this.projection = properties.projection;
+  switch (properties.projection) {
+    case 'orthographic':
+      this.left = properties.left;
+      this.right = properties.right;
+      this.bottom = properties.bottom;
+      this.top = properties.top;
+      this.near = properties.near;
+      this.far = properties.far;
+      break;
+    case 'perspective':
+      this.fov = properties.fov;
+      this.near = properties.near;
+      this.far = properties.far;
+      break;
+  }
 }
 Camera.prototype = Object.create(SceneObject.prototype);
 Camera.prototype.setParentObject = function(parentObject) {
@@ -1158,11 +1180,20 @@ Camera.prototype.worldViewTransformation = function() {
 
   return worldView;
 }
+// TODO: Write a Camera.isInView(object) function. This is done by first getting the world coordinates of the object, and then projecting those coordinates with the projection transformation (don't forget the perspective divide!). Finally, check if the resulting point is within the unit 2x2x2 cube.
 Camera.prototype.projectionTransformation = function(aspect) {
   var projection = new TransformationStack();
 
-  // TODO: Check if we need to make an orthographic projection
-  projection.push(perspective(this.fov, aspect, this.near, this.far));
+  switch (this.projection) {
+    case 'orthographic':
+      // TODO: Avoid changing aspect when projecting orthographic views
+      break;
+    case 'perspective':
+      projection.push(perspective(this.fov, aspect, this.near, this.far));
+      break;
+    default:
+      throw "projectionTransformation(): unknown projection type for camera";
+  }
 
   return projection;
 }
@@ -1216,8 +1247,7 @@ Camera.prototype.lookAt = function(object, preserveRoll) {
   // TODO: Add some assertions to make sure I didn't screw up the camera roll
 }
 Camera.prototype.follow = function(object) {
-  // Look at the object (and follow it in tick())
-  this.lookAt(object);
+  // Look at and follow the object (in tick())
   this.followObject = object;
 }
 Camera.prototype.stopFollow = function() {
