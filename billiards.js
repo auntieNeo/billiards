@@ -88,7 +88,7 @@ function tick() {
   if (dt > LARGE_DT && !tooSlow && (totalElapsed > 3.0)) {
     // TODO: Avoid displaying this warning when the user changes tabs.
     // TODO: Make a less intrusive warning.
-    window.alert("Your computer might be too slow for this game! Sorry!");
+//    window.alert("Your computer might be too slow for this game! Sorry!");
     tooSlow = true;
   }
   // "Pause" the simulation if dt gets too large by capping dt. Without doing
