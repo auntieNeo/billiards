@@ -244,7 +244,8 @@ function startGame() {
 
 var geometryAssets = [
   "common/unit_billiard_ball.obj",
-  "common/billiard_table.obj"
+  "common/billiard_table.obj",
+  "common/cue_stick.obj"
 ];
 var textureAssets = [
   "common/cue_ball.png",
@@ -919,6 +920,14 @@ var BilliardTable = function(gamemode, position, orientation) {
     default:
       window.alert("Unknown game mode!");
   }
+  // All balls positions are relative to the surface of the table
+  for (var i = 0; i < this.balls.length; ++i) {
+    this.balls[i].setParent(this);
+  }
+
+  // We need a cue stick to play
+  this.cueStick = new CueStick();
+  this.cueStick.setParent(this);
 
   // Structures for broad-phase collision detection
   this.xBalls = this.balls.slice();
@@ -957,6 +966,9 @@ var BilliardTable = function(gamemode, position, orientation) {
   canvas.onmouseup = function(event) {
     billiardTable.mouseUpEvent(event);
   }
+
+  // Initialize the game logic state machine
+  this.gameState = 'start';
 }
 BilliardTable.prototype = Object.create(MeshObject.prototype);
 BilliardTable.prototype.setCurrentCamera = function(camera) {
@@ -1006,6 +1018,8 @@ BilliardTable.prototype.drawChildren = function(gl, modelWorld, worldView, proje
     this.balls[i].draw(gl, modelWorld, worldView, projection);
   }
 
+  this.cueStick.draw(gl, modelWorld, worldView, projection);
+
   // Return the model-world transformation stack to its original state
   modelWorld.unwind(initialSize);
 }
@@ -1020,6 +1034,8 @@ BilliardTable.prototype.tickSimulation = function(dt) {
   for (var i = 0; i < this.numBalls; ++i) {
     this.balls[i].tick(dt);
   }
+
+  this.cueStick.tick(dt);
 
   // TODO: Simulate the effect of the cue stick on the cue ball
 
@@ -1142,11 +1158,35 @@ BilliardTable.prototype.tickSimulation = function(dt) {
 BilliardTable.prototype.tickGameLogic = function(dt) {
   // TODO: Choose cameras that are most appropriate/interesting by using the game state and Camera.isInView()
 //  this.currentCamera.follow(billiardTable.balls[8]);
-  this.currentCamera.rotateAbout(billiardTable, vec3(0.0, 0.0, 1.0), 2*Math.PI / 10.0);
+//  this.currentCamera.rotateAbout(billiardTable, vec3(0.0, 0.0, 1.0), 2*Math.PI / 10.0);
   // TODO: Determine the camera to draw (e.g. are we idling (rotate around the
   // table with perspective view)? Is the user dragging the cue stick(top ortho
   // view)?  Was the que ball just struck? Is the target ball close to a pocket
   // (pocket view)?
+  switch (this.gameState) {
+    case 'start':
+//      this.gameState = 'initialCueBallDrop';
+      this.gameState = 'startSetupShot';  // XXX
+      break;
+    case 'initialDropCueBall':
+      break;
+    case 'startSetupShot':
+      this.cueStick.setCueBallPosition(this.balls[0].position);
+      this.cueStick.fadeIn();
+    case 'setupShot':
+      this.gameState = 'setupShot';
+      this.cueStick.setCursorPosition(this.mousePos);
+      if (typeof this.mousePos != 'undefined') {
+      }
+      break;
+    case 'cueStickApproach':
+      // TODO: The user has released the cue stick and now we must animate to the
+      // point where it strikes the cue ball.
+      break;
+    case 't0':
+      this.balls[0].velocity = add(this.balls[0].velocity, scale(-1.0, vec3(this.mouseDragVector[0], this.mouseDragVector[1], 0.0)))
+      break;
+  }
 }
 BilliardTable.prototype.tickCameras = function(dt) {
   this.currentCamera.tick(dt);
@@ -1181,16 +1221,60 @@ BilliardTable.prototype.mouseUpEvent = function(event) {
   this.mouseEnd = this.tableCoordinatesFromMouseClick(event.clientX, event.clientY);
   if (typeof this.mouseStart != 'undefined') {
     // FIXME: I should consider the total size of the table when computing the drag vector
-    var mouseDragVector = subtract(this.mouseEnd, this.mouseStart);
-    console.log("Mouse drag vector: (" + mouseDragVector[0] + "," + mouseDragVector[1] + ")");
+    this.mouseDragVector = subtract(this.mouseEnd, this.mouseStart);
+    console.log("Mouse drag vector: (" + this.mouseDragVector[0] + "," + this.mouseDragVector[1] + ")");
     debug.drawLine(vec3(this.mouseStart[0], this.mouseStart[1], 0.01), vec3(this.mouseEnd[0], this.mouseEnd[1], 0.01));
     this.mouseStart = undefined;
     // TODO: Consider the game state before moving the cue ball; I should probably add a BilliardTable.startCueStick() function
     // TODO: Scale the velocity to something that feels good
     // TODO: Clamp the maximum velocity
-    this.balls[0].velocity = add(this.balls[0].velocity, scale(-1.0, vec3(mouseDragVector[0], mouseDragVector[1], 0.0)))
   }
 }
+
+//------------------------------------------------------------
+// Prototype for the cue stick
+//------------------------------------------------------------
+var CueStick = function(position, orientation) {
+  // Iherit from mesh object
+  MeshObject.call(this,
+      "common/cue_stick.obj", "common/test.png", "billiardball",  // FIXME: Write a shader for the cue stick? Or rename the shader.
+      position, orientation);
+}
+CueStick.prototype = Object.create(MeshObject.prototype);
+CueStick.prototype.setCueBallPosition = function(pos) {
+  this.cueBallPosition = pos;
+}
+CueStick.prototype.setCursorPosition = function(pos) {
+  this.cursorPosition = pos;
+}
+CueStick.prototype.fadeIn = function(t) {
+  // TODO: Animate the fade in
+  this.drawAlpha = 1.0;
+}
+CueStick.prototype.fadeOut = function(t) {
+  // TODO: Animate the fade out
+  this.drawAlpha = 0.0;
+}
+CueStick.prototype.tick = function(dt) {
+  if (typeof this.cursorPosition == 'undefined') {
+    return;  // No cursor to work with
+  }
+  // TODO: Determine where the mouse cursor is relative to the cue ball and
+  // draw the cue stick
+  var stickTransformation = new TransformationStack();
+  var cueBallDirection = normalize(subtract(this.cueBallPosition, vec3(this.cursorPosition[0], this.cursorPosition[1], this.cueBallPosition[2])));
+  // TODO: Consider the state of the cue stick and animate accordingly
+  // Rotate the cue stick so that it's pointing from the cursor position to the
+  // cue ball
+  // FIXME: We should rotate about our parent's Z axis...
+  this.orientation = quat(vec3(0.0, 0.0, 1.0), Math.atan2(cueBallDirection[1], cueBallDirection[0]));
+
+  // Move the cue stick to the cursor position (in front of the cue ball)
+  this.position = vec3(this.cursorPosition[0], this.cursorPosition[1], this.cueBallPosition[2]);
+
+  // FIXME: This might look better if we translated the stick along its local Z axis. For now it looks fine.
+};
+// TODO: Write a draw method that fades the CueStick in and out?
 
 //------------------------------------------------------------
 // Prototype for cameras
@@ -1216,26 +1300,15 @@ var Camera = function (properties, position, orientation) {
   }
 }
 Camera.prototype = Object.create(SceneObject.prototype);
-Camera.prototype.setParentObject = function(parentObject) {
-  this.parentObject = parentObject;
-}
 Camera.prototype.worldViewTransformation = function() {
   var worldView = new TransformationStack();
   var cameraWorldCoordinates = this.position;
   // The camera can be positioned relative to the origin or relative to some
   // other object (e.g. the billiard table). In either case, we need to
   // transform the camera into world space before computing the modelView
-  // matrix. In the latter case, we need to apply the transform from the parent
-  // object.
-  if (typeof parentObject != 'undefined') {
-    // FIXME: This parent-child object hierarchy has not been implemented yet...
-    // Transform the camera by its parent's transform
-    // NOTE: vec4() converts vectors in R^3 to points in affine space, i.e. the
-    // w component is set to 1.0
-    cameraWorldCoordinates = mult(vec4(this.position), parentObject.getTransformation());
-    /* FIXME: I don't even consider the parent's rotation here; ugh */
-    /* TODO: What I really need is a getWorldPosition() and getWorldOrientation() function that recursively determines the position and orientations of these objects */
-  }
+  // matrix. The getWorldPosition() and getWorldOrientation() methods do the
+  // work of finding the world coordinates, even if the parent-child hierarchy
+  // gets complicated.
   // Rotate the world so that the camera is oriented facing down the -z axis
   // and has the correct roll. This amounts to rotating everything in the world
   // by inverse of our camera's orientation.
