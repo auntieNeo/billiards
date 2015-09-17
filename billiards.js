@@ -113,7 +113,7 @@ function tick() {
   }
 
   if (DETERMINISTIC_DT) {
-    if (dt >= MAX_DT) {
+    if (dt >= MAX_DT) {  // FIXME: This should be a while loop? It doesn't matter since we pause the game anyway.
       animate(MAX_DT);
       dt -= MAX_DT;
     }
@@ -181,10 +181,10 @@ window.onload = function init() {
   window.onkeydown = function(event) {
     switch (event.keyCode) {
       case 37:  // Left Arrow
-        billiardTable.orientation = qmult(billiardTable.orientation, quat(0.0, 0.00087, 0.0, 1.0));
+        billiardTable.currentCamera.orientation = normalize(qmult(billiardTable.currentCamera.orientation, quat(0.0, 0.00087, 0.0, 1.0)))
         break;
       case 39:  // Right Arrow
-        billiardTable.orientation = qmult(billiardTable.orientation, qinverse(quat(0.0, 0.00087, 0.0, 1.0)));
+        billiardTable.currentCamera.orientation = normalize(qmult(billiardTable.currentCamera.orientation, quat(0.0, -0.00087, 0.0, 1.0)));
         break;
 
       case 33:  // Page Up
@@ -1126,7 +1126,8 @@ BilliardTable.prototype.tickSimulation = function(dt) {
 }
 BilliardTable.prototype.tickGameLogic = function(dt) {
   // TODO: Choose cameras that are most appropriate/interesting by using the game state and Camera.isInView()
-  this.currentCamera.follow(billiardTable.balls[8]);
+//  this.currentCamera.follow(billiardTable.balls[8]);
+  this.currentCamera.rotateAbout(billiardTable, vec3(0.0, 0.0, 1.0), 2*Math.PI / 10.0);
   // TODO: Determine the camera to draw (e.g. are we idling (rotate around the
   // table with perspective view)? Is the user dragging the cue stick(top ortho
   // view)?  Was the que ball just struck? Is the target ball close to a pocket
@@ -1140,9 +1141,15 @@ BilliardTable.prototype.tickCameras = function(dt) {
 BilliardTable.prototype.mouseDownEvent = function(event) {
   this.mouseStart = vec2(event.clientX, event.clientY);
   console.log("click location: " + event.clientX + "," + event.clientY);
-  this.currentCamera.screenPointToWorldRay(
+  // Find the point that the ray from the click intersects the billiard table
+  var ray = this.currentCamera.screenPointToWorldRay(
       vec2(event.clientX, event.clientY),
       canvas.clientWidth, canvas.clientHeight);
+  console.log("ray: " + ray);
+  var intersectionPoint = linePlaneIntersection(
+      vec4(this.currentCamera.getWorldPosition()), ray,
+      vec4(this.getWorldPosition()), mult(vec4(0.0, 0.0, 1.0, 0.0), quatToMatrix(qinverse(this.getWorldOrientation()))));  // FIXME: This is in world coordinates; we probably want this is billiard table coordinates
+  console.log("intersectionPoint: " + intersectionPoint);
 }
 BilliardTable.prototype.mouseUpEvent = function(event) {
   this.mouseEnd = vec2(event.clientX, event.clientY);
@@ -1274,6 +1281,8 @@ Camera.prototype.lookAt = function(object, preserveRoll) {
   this.orientation = normalize(this.orientation);  // Be nice to our quaternion
 
   // TODO: Add some assertions to make sure I didn't screw up the camera roll
+
+  // FIXME: This implementation is close, but it doesn't work instantly
 }
 Camera.prototype.screenPointToWorldRay = function(point, width, height) {
   // NOTE: A ray has a direction and a reference point. As much as makes sense,
@@ -1296,31 +1305,92 @@ Camera.prototype.screenPointToWorldRay = function(point, width, height) {
   console.log("point: " + printVector(point));
   console.log("width: " +width + "  height: " + height);
   console.log("screenTransform matrix: " + printMatrix(screenTransform));
-  var deviceSpacePoint = mult(vec4(point), screenTransform);
-  console.log("deviceSpacePoint: " + printVector(deviceSpacePoint));
-  // ...which, after crossing back over the perspective divide, are rays not necessarily parallel to the Z-axis in homogeneous clip space...
-  // ...which, after being transformed by the inverse projection matrix, are rays relative to the camera's local origin in eye space...
-  // ...which, after being rotated by the inverse of the camera's orientation, are rays relative to the global origin in world space.
+  var deviceSpaceRay = mult(vec4(point), screenTransform);
+  console.log("deviceSpaceRay: " + printVector(deviceSpaceRay));
+
+  /*
+   * ...which, after crossing back over the perspective divide, are rays not
+   * necessarily parallel to the Z-axis in homogeneous clip space...  // FIXME: this probably isn't accurate
+   */
+  // The perspective divide does not apply to our ray because it is pointing
+  // through the focal point and straight out of the camera. We just need a 1.0
+  // for w so that it's a point, and -1.0 for z so that it points down the -z
+  // axis. Easy!
+  var clipSpaceRay = deviceSpaceRay.slice();
+  clipSpaceRay[2] = -1.0;
+  clipSpaceRay[3] = 1.0;
+
+  /*
+   * ...which, after being transformed by the inverse projection matrix, are
+   * rays relative to the camera's local origin in eye space...
+   */
+  var inverseProjectionMatrix = inverse(this.projectionTransformation(width/height).peek());
+  console.log("inverseProjectionMatrix: " + printMatrix(inverseProjectionMatrix));
+  var eyeSpaceRay = mult(deviceSpaceRay, inverseProjectionMatrix);
+  eyeSpaceRay[2] = -1;
+  eyeSpaceRay[3] = 0;
+  console.log("eyeSpaceRay: " + printVector(eyeSpaceRay));
+
+  /*
+   * ...which, after being rotated by the inverse of the camera's orientation,
+   * are rays relative to the global origin in world space.
+   */
+  // NOTE: I have no idea why this.getWorldOrientation() doesn't need to be
+  // inverted. I should investigate.
+  var worldSpaceRay = normalize(mult(eyeSpaceRay, quatToMatrix(this.getWorldOrientation())));
+  console.log("worldSpaceRay: " + printVector(worldSpaceRay));
 
   // TODO: Take a breather.
+  return worldSpaceRay;
 }
 Camera.prototype.follow = function(object) {
   // Look at and follow the object (in tick())
-  this.followObject = object;
-}
-Camera.prototype.stopFollow = function() {
-  this.followObject = undefined;
+  this.animation = {
+    type: "follow",
+    object: object
+  }
 }
 Camera.prototype.rotateAbout = function(object, axis, angularVelocity) {
-  // TODO: 
+  // Rotate about the object (in tick())
+  this.animation = {
+    type: "rotateAbout",
+    object: object,
+    axis: axis.slice(),
+    angularVelocity: angularVelocity
+  }
 }
 Camera.prototype.transitionTo = function(camera, stepFunction, callback) {
   // TODO
 }
-Camera.prototype.tick = function() {
-  // TODO: Animate the camera
-  if (typeof this.followObject != 'undefined') {
-    this.lookAt(this.followObject);
+Camera.prototype.stopAnimation = function() {
+  this.animation = undefined;
+}
+Camera.prototype.tick = function(dt) {
+  if (typeof this.animation == 'undefined') {
+    return;
+  }
+  // Animate the camera
+  switch (this.animation.type) {
+    case 'follow':
+      this.lookAt(this.animation.object);
+      break;
+    case 'rotateAbout':
+      // Calculate the angle to rotate
+      var angularDisplacement = this.animation.angularVelocity * dt;
+      var transformationStack = new TransformationStack();
+      // Rotate the camera's position around the given axis (in the object's
+      // space)
+      transformationStack.push(quatToMatrix(quat(this.animation.axis, angularDisplacement)));
+      // Translate the origin to the object's space
+      transformationStack.push(translate(scale(-1, this.animation.object.getWorldPosition())));
+
+      // Apply the transformations to the camera position
+      this.position = vec3(mult(vec4(this.position), transformationStack.peek()));
+
+      // Look at the object
+      this.lookAt(this.animation.object);
+
+      break;
   }
 }
 
@@ -1443,3 +1513,16 @@ function collisionDisplacement(p, q, r) {
 
 
 // TODO: Implement algorithm for Separating Axis Theorem collision detection
+
+function linePlaneIntersection(linePoint, lineVector, planePoint, planeNormal) {
+  var denominator = dot(lineVector, planeNormal);
+  if (denominator == 0.0) {
+    return undefined;  // The line is parallel to the plane
+  }
+  console.log("denominator: " + denominator);
+  var intersectionPoint = add(scale(dot(subtract(linePoint, planePoint), planeNormal)/denominator, lineVector), linePoint);
+  console.log("dot(subtract(linePoint, planePoint), planeNormal): " + dot(subtract(linePoint, planePoint), planeNormal));
+  intersectionPoint[3] = 1.0;
+
+  return intersectionPoint;
+}

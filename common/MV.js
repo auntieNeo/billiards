@@ -41,11 +41,9 @@ function printVector(v) {
 function printMatrix(m) {
   if(m.matrix != true) throw "printMatrix(): not a matrix!";
   var msg = "(";
-  console.log("m.length: " + m.length);
   for (var i = 0; i < m.length; ++i) {
     msg += "(";
     for (var j = 0; j < m[i].length; ++j) {
-    console.log("m[i].length: " + m[i].length);
       msg += m[i][j];
       if (j == m[i].length - 1) {
         msg += ")";
