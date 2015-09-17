@@ -126,6 +126,7 @@ function tick() {
 // TODO: Put these inside some sort of game state object
 var billiardTable;
 var mainCamera;  // TODO: Move this inside the billiardTable object, so that it is always relative to the table surface
+var debug;
 
 
 //------------------------------------------------------------
@@ -141,6 +142,8 @@ function render() {
   var projection = billiardTable.currentCamera.projectionTransformation(canvas.clientWidth/canvas.clientHeight);
 
   billiardTable.draw(gl, modelWorld, worldView, projection);
+
+  debug.draw(gl, worldView, projection);
 }
 
 //------------------------------------------------------------
@@ -233,6 +236,8 @@ function startGame() {
   // TODO: Allow user to select different game modes
   billiardTable = new BilliardTable(EIGHT_BALL_MODE);
 
+  debug = new GraphicsDebug(assets["debug"]);
+
   // Start the asynchronous game loop
   tick();
 }
@@ -263,7 +268,11 @@ var textureAssets = [
 ];
 var shaderAssets = [ { name: "billiardball", vert: "billiardball-vert", frag: "billiardball-frag",
                        attributes: { vertexPosition: -1, vertexUV: -1, vertexNormal: -1 },
-                       uniforms: { modelViewMatrix: null, projectionMatrix: null } } ];
+                       uniforms: { modelViewMatrix: null, projectionMatrix: null } },
+                     { name: "debug", vert: "debug-vert", frag: "debug-frag",
+                       attributes: { vertexPosition: -1 },
+                       uniforms: { modelViewMatrix: null, projectionMatrix: null } }
+];
 var assetIndex = 0;
 var assetHandle = null;
 var textureImage = null;
@@ -1150,6 +1159,13 @@ BilliardTable.prototype.mouseDownEvent = function(event) {
       vec4(this.currentCamera.getWorldPosition()), ray,
       vec4(this.getWorldPosition()), mult(vec4(0.0, 0.0, 1.0, 0.0), quatToMatrix(qinverse(this.getWorldOrientation()))));  // FIXME: This is in world coordinates; we probably want this is billiard table coordinates
   console.log("intersectionPoint: " + intersectionPoint);
+  // XXX: Draw the Z axis as a test
+//  debug.drawLine(this.getWorldPosition(), intersectionPoint);
+//  debug.drawLine(this.getWorldPosition(), intersectionPoint);
+//  debug.drawLine(vec3(0.0, 0.0, 0.0), vec3(intersectionPoint[0], intersectionPoint[1]));
+  console.log("camera position: " + printVector(this.currentCamera.getWorldPosition()))
+//  debug.drawLine(add(this.currentCamera.getWorldPosition(), scale(0.5, vec3(ray))), add(this.getWorldPosition(), scale(100, vec3(ray))));
+  debug.drawLine(vec3(0.0, 0.0, 0.01), vec3(intersectionPoint[0], intersectionPoint[1], 0.01));
 }
 BilliardTable.prototype.mouseUpEvent = function(event) {
   this.mouseEnd = vec2(event.clientX, event.clientY);
@@ -1515,14 +1531,63 @@ function collisionDisplacement(p, q, r) {
 // TODO: Implement algorithm for Separating Axis Theorem collision detection
 
 function linePlaneIntersection(linePoint, lineVector, planePoint, planeNormal) {
+  console.log("lineVector: " + printVector(lineVector));
+  console.log("linePoint: " + printVector(linePoint));
+  console.log("planePoint: " + printVector(planePoint));
+  console.log("planeNormal: " + printVector(planeNormal));
   var denominator = dot(lineVector, planeNormal);
   if (denominator == 0.0) {
     return undefined;  // The line is parallel to the plane
   }
   console.log("denominator: " + denominator);
-  var intersectionPoint = add(scale(dot(subtract(linePoint, planePoint), planeNormal)/denominator, lineVector), linePoint);
+  var intersectionPoint = add(scale(dot(subtract(planePoint, linePoint), planeNormal)/denominator, lineVector), linePoint);
   console.log("dot(subtract(linePoint, planePoint), planeNormal): " + dot(subtract(linePoint, planePoint), planeNormal));
   intersectionPoint[3] = 1.0;
 
   return intersectionPoint;
+}
+
+//------------------------------------------------------------
+// Prototype for tool to draw shapes for debugging graphics
+//------------------------------------------------------------
+var GraphicsDebug = function(shader) {
+  this.lines = [];
+  this.linesUpdated = false;
+
+  this.shaderProgram = shader;
+}
+GraphicsDebug.prototype.drawLine = function(a, b) {
+  this.lines.push(a);
+  this.lines.push(b);
+  this.linesUpdated = true;
+  if (typeof this.vertexBuffer == 'undefined') {
+    this.vertexBuffer = gl.createBuffer();
+  }
+}
+GraphicsDebug.prototype.draw = function(gl, worldView, projection) {
+  if (this.lines.length <= 0) {
+    return;
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
+  if (this.linesUpdated) {
+    // Upload the new line data to the vertex buffer
+    var data = new Float32Array(this.lines.length * 3);
+    for (var i = 0; i < this.lines.length; ++i) {
+      data[i*3 + 0] = this.lines[i][0];
+      data[i*3 + 1] = this.lines[i][1];
+      data[i*3 + 2] = this.lines[i][2];
+    }
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+  }
+
+  gl.useProgram(this.shaderProgram);
+  gl.uniformMatrix4fv(this.shaderProgram.uniforms.modelViewMatrix, false, flatten(worldView.peek()));
+  gl.uniformMatrix4fv(this.shaderProgram.uniforms.projectionMatrix, false, flatten(projection.peek()));
+  gl.vertexAttribPointer(this.shaderProgram.attributes.vertexPosition,
+                         3,         // vec3
+                         gl.FLOAT,  // 32bit floating point
+                         false,     // Don't normalize values
+                         0,         // Tightly packed
+                         0);        // Position starts at the first value stored
+  gl.drawArrays(gl.LINES, 0, this.lines.length);
 }

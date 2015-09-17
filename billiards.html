@@ -58,6 +58,24 @@
       }
     </script>
 
+    <script id="debug-vert" type="x-shader/x-vertex">
+      attribute vec3 vertexPosition;
+      
+      uniform mat4 modelViewMatrix;
+      uniform mat4 projectionMatrix;
+      
+      void main(void) {
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);
+      }
+    </script>
+    <script id="debug-frag" type="x-shader/x-fragment">
+      precision mediump float;
+
+      void main(void) {
+        gl_FragColor = vec4(1.0, 0.0, 1.0, 1.0);
+      }
+    </script>
+
     <!------------------------------------------------------------>
     <!-- This is the file you will modify -->
     <!------------------------------------------------------------>
