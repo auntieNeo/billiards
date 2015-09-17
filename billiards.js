@@ -948,6 +948,12 @@ var BilliardTable = function(gamemode, position, orientation) {
   canvas.onmousedown = function(event) {
     billiardTable.mouseDownEvent(event);
   }
+  canvas.onmousemove = function(event) {
+    billiardTable.mouseMoveEvent(event);
+  }
+  canvas.onmouseleave = function(event) {
+    billiardTable.mouseLeaveEvent(event);
+  }
   canvas.onmouseup = function(event) {
     billiardTable.mouseUpEvent(event);
   }
@@ -1147,35 +1153,42 @@ BilliardTable.prototype.tickCameras = function(dt) {
 }
 // Various user input event handlers for BilliardTable (most user interaction
 // is processed here)
-BilliardTable.prototype.mouseDownEvent = function(event) {
-  this.mouseStart = vec2(event.clientX, event.clientY);
-  console.log("click location: " + event.clientX + "," + event.clientY);
+BilliardTable.prototype.tableCoordinatesFromMouseClick = function(x, y) {
   // Find the point that the ray from the click intersects the billiard table
   var ray = this.currentCamera.screenPointToWorldRay(
-      vec2(event.clientX, event.clientY),
+      vec2(x, y),
       canvas.clientWidth, canvas.clientHeight);
-  console.log("ray: " + ray);
   var intersectionPoint = linePlaneIntersection(
       vec4(this.currentCamera.getWorldPosition()), ray,
       vec4(this.getWorldPosition()), mult(vec4(0.0, 0.0, 1.0, 0.0), quatToMatrix(qinverse(this.getWorldOrientation()))));  // FIXME: This is in world coordinates; we probably want this is billiard table coordinates
-  console.log("intersectionPoint: " + intersectionPoint);
-  // XXX: Draw the Z axis as a test
-//  debug.drawLine(this.getWorldPosition(), intersectionPoint);
-//  debug.drawLine(this.getWorldPosition(), intersectionPoint);
-//  debug.drawLine(vec3(0.0, 0.0, 0.0), vec3(intersectionPoint[0], intersectionPoint[1]));
-  console.log("camera position: " + printVector(this.currentCamera.getWorldPosition()))
 //  debug.drawLine(add(this.currentCamera.getWorldPosition(), scale(0.5, vec3(ray))), add(this.getWorldPosition(), scale(100, vec3(ray))));
-  debug.drawLine(vec3(0.0, 0.0, 0.01), vec3(intersectionPoint[0], intersectionPoint[1], 0.01));
+  return intersectionPoint;
+}
+BilliardTable.prototype.mouseDownEvent = function(event) {
+  this.mouseStart = this.tableCoordinatesFromMouseClick(event.clientX, event.clientY);
+}
+BilliardTable.prototype.mouseMoveEvent = function(event) {
+  this.mousePos = this.tableCoordinatesFromMouseClick(event.clientX, event.clientY);
+  if (typeof this.mouseStart != 'undefined') {
+    // TODO: Animate the cue stick
+  }
+}
+BilliardTable.prototype.mouseLeaveEvent = function(event) {
+  this.mouseStart = undefined;
+  this.mousePos = undefined;
 }
 BilliardTable.prototype.mouseUpEvent = function(event) {
-  this.mouseEnd = vec2(event.clientX, event.clientY);
+  this.mouseEnd = this.tableCoordinatesFromMouseClick(event.clientX, event.clientY);
   if (typeof this.mouseStart != 'undefined') {
-    // FIXME: I should consider the total size of the screen when computing the drag vector
+    // FIXME: I should consider the total size of the table when computing the drag vector
     var mouseDragVector = subtract(this.mouseEnd, this.mouseStart);
     console.log("Mouse drag vector: (" + mouseDragVector[0] + "," + mouseDragVector[1] + ")");
+    debug.drawLine(vec3(this.mouseStart[0], this.mouseStart[1], 0.01), vec3(this.mouseEnd[0], this.mouseEnd[1], 0.01));
     this.mouseStart = undefined;
     // TODO: Consider the game state before moving the cue ball; I should probably add a BilliardTable.startCueStick() function
-    this.balls[0].velocity = vec3(mouseDragVector[0], mouseDragVector[1], 0.0);
+    // TODO: Scale the velocity to something that feels good
+    // TODO: Clamp the maximum velocity
+    this.balls[0].velocity = add(this.balls[0].velocity, scale(-1.0, vec3(mouseDragVector[0], mouseDragVector[1], 0.0)))
   }
 }
 
