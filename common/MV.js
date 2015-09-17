@@ -25,6 +25,46 @@ function radians( degrees ) {
 //  Vector Constructors
 //
 
+// TODO: Write a print function for vectors and 
+function printVector(v) {
+  var msg = "("
+  for (var i = 0; i < v.length; ++i) {
+    msg += v[i];
+      if (i == v.length - 1) {
+        msg += ")";
+      } else {
+        msg += ", ";
+      }
+  }
+  return msg;
+}
+function printMatrix(m) {
+  if(m.matrix != true) throw "printMatrix(): not a matrix!";
+  var msg = "(";
+  console.log("m.length: " + m.length);
+  for (var i = 0; i < m.length; ++i) {
+    msg += "(";
+    for (var j = 0; j < m[i].length; ++j) {
+    console.log("m[i].length: " + m[i].length);
+      msg += m[i][j];
+      if (j == m[i].length - 1) {
+        msg += ")";
+      } else {
+        msg += ", ";
+      }
+    }
+    if (i == m.length - 1) {
+      msg += ")";
+    }
+    else {
+      msg += ",\n";
+    }
+  }
+  msg += ")\n";
+
+  return msg;
+}
+
 function vec2()
 {
     var result = _argumentsToArray( arguments );

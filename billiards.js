@@ -936,10 +936,10 @@ var BilliardTable = function(gamemode, position, orientation) {
 
   // Register events
   var billiardTable = this;
-  window.onmousedown = function(event) {
+  canvas.onmousedown = function(event) {
     billiardTable.mouseDownEvent(event);
   }
-  window.onmouseup = function(event) {
+  canvas.onmouseup = function(event) {
     billiardTable.mouseUpEvent(event);
   }
 }
@@ -1139,6 +1139,10 @@ BilliardTable.prototype.tickCameras = function(dt) {
 // is processed here)
 BilliardTable.prototype.mouseDownEvent = function(event) {
   this.mouseStart = vec2(event.clientX, event.clientY);
+  console.log("click location: " + event.clientX + "," + event.clientY);
+  this.currentCamera.screenPointToWorldRay(
+      vec2(event.clientX, event.clientY),
+      canvas.clientWidth, canvas.clientHeight);
 }
 BilliardTable.prototype.mouseUpEvent = function(event) {
   this.mouseEnd = vec2(event.clientX, event.clientY);
@@ -1270,6 +1274,35 @@ Camera.prototype.lookAt = function(object, preserveRoll) {
   this.orientation = normalize(this.orientation);  // Be nice to our quaternion
 
   // TODO: Add some assertions to make sure I didn't screw up the camera roll
+}
+Camera.prototype.screenPointToWorldRay = function(point, width, height) {
+  // NOTE: A ray has a direction and a reference point. As much as makes sense,
+  // we use the origin of the given space as the implicit reference point.
+
+  /*
+   *  Sceen points are lines parallel to the Z-axis in normalized device space...
+   */
+  // Translate origin into the center of the screen
+  var screenTransform = mult(mat4(), translate(-1.0, 1.0, 0.0));
+  // Flip the y-axis coordinates
+  screenTransform = mult(screenTransform, scalem(1.0, -1.0, 1.0));
+  // Scale the pixel coordinates to be within 0.0 and 2.0
+  var screenScale = mat4(2/width,        0, 0, 0,
+                               0, 2/height, 0, 0,
+                               0,        0, 1, 0,
+                               0,        0, 0, 1);
+  screenTransform = mult(screenTransform, screenScale);
+
+  console.log("point: " + printVector(point));
+  console.log("width: " +width + "  height: " + height);
+  console.log("screenTransform matrix: " + printMatrix(screenTransform));
+  var deviceSpacePoint = mult(vec4(point), screenTransform);
+  console.log("deviceSpacePoint: " + printVector(deviceSpacePoint));
+  // ...which, after crossing back over the perspective divide, are rays not necessarily parallel to the Z-axis in homogeneous clip space...
+  // ...which, after being transformed by the inverse projection matrix, are rays relative to the camera's local origin in eye space...
+  // ...which, after being rotated by the inverse of the camera's orientation, are rays relative to the global origin in world space.
+
+  // TODO: Take a breather.
 }
 Camera.prototype.follow = function(object) {
   // Look at and follow the object (in tick())
