@@ -26,6 +26,9 @@ var BALL_CLOTH_ROLLING_RESISTANCE_ACCELERATION =
     BALL_CLOTH_COEFFICIENT_OF_ROLLING_RESISTANCE * GRAVITY_ACCELERATION;
 var CUE_BALL_MASS = 0.17;  // kg
 var NUMBERED_BALL_MASS = 0.16;  // kg
+var CUE_STICK_TIME_TO_FADE_IN = 0.1;
+var CUE_STICK_TIME_TO_COLLISION = 0.1;  // Determines how fast the cue stick must travel
+var CUE_STICK_TIME_AFTER_COLLISION = 0.1;
 
 // Ball rack positions
 // Balls in racks are arranged in a triangular pattern. See:
@@ -50,7 +53,7 @@ var NINE_BALL_NUM_BALLS = 10;
 var STRAIGHT_POOL_NUM_BALLS = 16;
 
 // Animation constants
-var MAX_DT = 0.01;  // Arbitrary s
+var MAX_DT = 0.01;  // Arbitrary s  // FIXME: un-marry the animation dt and the simulation dt
 var LARGE_DT = MAX_DT * 10;  // Arbitrary limit for frame drop warning
 var DETERMINISTIC_DT = true;
 
@@ -104,6 +107,8 @@ function tick() {
   render();
 
   // XXX: This is a test of replays; this should be moved elsewhere
+  // FIXME: Replays probably don't play nice with the table or cue stick state machines
+  /*
   if (typeof initialState == 'undefined') {
     initialState = billiardTable.saveState();
   }
@@ -111,6 +116,7 @@ function tick() {
     billiardTable.restoreState(initialState);
     initialState = false;
   }
+  */
 
   if (DETERMINISTIC_DT) {
     if (dt >= MAX_DT) {  // FIXME: This should be a while loop? It doesn't matter since we pause the game anyway.
@@ -179,6 +185,8 @@ window.onload = function init() {
   // TODO: write event handlers
   //----------------------------------------
   window.onresize = function(event) {
+    gl.canvas.width = gl.canvas.clientWidth;
+    gl.canvas.height = gl.canvas.clientHeight;
     gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
   };
   window.onkeydown = function(event) {
@@ -1173,19 +1181,53 @@ BilliardTable.prototype.tickGameLogic = function(dt) {
     case 'startSetupShot':
       this.cueStick.setCueBallPosition(this.balls[0].position);
       this.cueStick.fadeIn();
+      this.cueStick.startSetupShot();
     case 'setupShot':
       this.gameState = 'setupShot';
       this.cueStick.setCursorPosition(this.mousePos);
-      if (typeof this.mousePos != 'undefined') {
+      // TODO: Add controls for fine control of cue stick position (i.e. rotate the cue stick position about the cue ball)
+      if (typeof this.mouseStart == 'undefined') {
+        break;
       }
+      // The user clicked; release the cue stick
+      this.cueStick.release();
+    case 'cueStickRelease':
+      this.gameState = 'cueStickRelease';
+      // The user has released the cue stick and now the cue stick will animate
+      // to the point where it strikes the cue ball.
+      // Wait until the cue stick strikes the cue ball.
+      if (this.cueStick.releasedTimeElapsed < CUE_STICK_TIME_TO_COLLISION) {
+        break;
+      }
+    case 'cueStickCollision':
+      // FIXME: The cue stick/ball physics is clearly broken (just look at it)
+      this.balls[0].velocity = add(this.balls[0].velocity, this.cueStick.collisionVelocity);
+    case 'postCollision':
+      this.gameState = 'postCollision';
+      // TODO: Wait for all of the balls to settle down
+      var done = true;
+      for (var i = 0; i < this.balls.length; ++i) {
+        if (length(this.balls[i].velocity) > 0.0) {  // FIXME: Also consider pocketed balls
+          done = false;
+          break;
+        }
+      }
+      if (!this.cueStick.isIdle()) {
+        done = false;  // Synchronize the billiard table state machine and the cue stick state machine
+      }
+      if (!done) { 
+        break;  // Keep waiting
+      }
+    case 'postSimulation':
+      this.gameState = 'postSimulation';
+      console.log("The balls stopped yay.");
+      // TODO: Play replays (if we have any pocketed balls)
+      // TODO: Determine what turn is next (i.e. cue shot, cue ball drop, or break shot)
+      // TODO: Start the next turn
+      this.gameState = 'startSetupShot';
       break;
-    case 'cueStickApproach':
-      // TODO: The user has released the cue stick and now we must animate to the
-      // point where it strikes the cue ball.
-      break;
-    case 't0':
-      this.balls[0].velocity = add(this.balls[0].velocity, scale(-1.0, vec3(this.mouseDragVector[0], this.mouseDragVector[1], 0.0)))
-      break;
+    default:
+      throw "Unknown billiard table state '" + this.gameState + "'!";
   }
 }
 BilliardTable.prototype.tickCameras = function(dt) {
@@ -1209,13 +1251,11 @@ BilliardTable.prototype.mouseDownEvent = function(event) {
 }
 BilliardTable.prototype.mouseMoveEvent = function(event) {
   this.mousePos = this.tableCoordinatesFromMouseClick(event.clientX, event.clientY);
-  if (typeof this.mouseStart != 'undefined') {
-    // TODO: Animate the cue stick
-  }
 }
 BilliardTable.prototype.mouseLeaveEvent = function(event) {
   this.mouseStart = undefined;
   this.mousePos = undefined;
+  this.mouseDown = undefined;
 }
 BilliardTable.prototype.mouseUpEvent = function(event) {
   this.mouseEnd = this.tableCoordinatesFromMouseClick(event.clientX, event.clientY);
@@ -1239,8 +1279,20 @@ var CueStick = function(position, orientation) {
   MeshObject.call(this,
       "common/cue_stick.obj", "common/test.png", "billiardball",  // FIXME: Write a shader for the cue stick? Or rename the shader.
       position, orientation);
+
+  // Start our state machine idle
+  this.state = 'idle';
+
+  // The billiard table references this value, so we'd better keep it valid
+  this.releasedTimeElapsed = 0.0;
 }
 CueStick.prototype = Object.create(MeshObject.prototype);
+CueStick.prototype.startSetupShot = function() {
+  if (this.state != 'idle') {
+    throw 'The cue stick is in a bad state!';
+  }
+  this.state = 'setupShot';
+}
 CueStick.prototype.setCueBallPosition = function(pos) {
   this.cueBallPosition = pos;
 }
@@ -1255,26 +1307,99 @@ CueStick.prototype.fadeOut = function(t) {
   // TODO: Animate the fade out
   this.drawAlpha = 0.0;
 }
+CueStick.prototype.release = function() {
+  this.state = 'startReleased';
+}
+CueStick.prototype.isIdle = function() {
+  return this.state == 'idle';
+}
 CueStick.prototype.tick = function(dt) {
-  if (typeof this.cursorPosition == 'undefined') {
-    return;  // No cursor to work with
+  // Consider the state of the cue stick and animate accordingly
+  switch (this.state) {
+    case 'idle':
+      // Wait for the cue stick to be needed
+      break;
+    case 'setupShot':
+      if (typeof this.cursorPosition == 'undefined') {
+        break;  // No cursor to work with
+      }
+      // TODO: Determine where the mouse cursor is relative to the cue ball and
+      // draw the cue stick
+      var stickTransformation = new TransformationStack();
+      var cueBallDirection = normalize(subtract(this.cueBallPosition, vec3(this.cursorPosition[0], this.cursorPosition[1], this.cueBallPosition[2])));
+      // Rotate the cue stick so that it's pointing from the cursor position to the
+      // cue ball
+      // FIXME: We should rotate about our parent's Z axis...
+      this.orientation = quat(vec3(0.0, 0.0, 1.0), Math.atan2(cueBallDirection[1], cueBallDirection[0]));
+
+      // Move the cue stick to the cursor position (in front of the cue ball)
+      this.position = vec3(this.cursorPosition[0], this.cursorPosition[1], this.cueBallPosition[2]);
+
+      // FIXME: This might look better if we translated the stick along its local Z axis. It might also look much worse, since the tip of the cue stick would be much further from the table. For now it looks fine.
+      break;
+    case 'startReleased': 
+      // Store the time elapsed since release
+      this.releasedTimeElapsed = 0.0;  // -dt + dt = 0.0   // FIXME: use -dt
+      // FIXME: If the tip of the cue stick is inside the ball, go back to shot setup
+      // Store our current position and the computed position of the collision with the cue ball
+      this.initialPosition = this.position;
+      this.collisionPosition = add(this.position, add(subtract(this.cueBallPosition, this.position), scale(BALL_RADIUS, normalize(subtract(this.position, this.cueBallPosition)))));
+      this.collisionVelocity = scale(1/CUE_STICK_TIME_TO_COLLISION, subtract(this.collisionPosition, this.initialPosition));
+      console.log("cue stick initialPosition: " + this.initialPosition);
+      console.log("cue stick collisionPosition: " + this.collisionPosition);
+    case 'released':
+      this.state = 'released';
+      // Update the time elapsed since release
+      this.releasedTimeElapsed += dt;
+      console.log("releasedTimeElapsed: " + this.releasedTimeElapsed);
+      // Interpolate between the initial position and the collision position to
+      // determine our position
+      this.position = add(  // TODO: Use a formula with some stick acceleration rather than just zero
+          scale(1.0 - this.releasedTimeElapsed/CUE_STICK_TIME_TO_COLLISION, this.initialPosition),
+          scale(this.releasedTimeElapsed/CUE_STICK_TIME_TO_COLLISION, this.collisionPosition));
+      if (this.releasedTimeElapsed < CUE_STICK_TIME_TO_COLLISION) {
+        console.log("Good we broke out of here");
+        break;
+      }
+    case 'postCollision': 
+      this.state = 'postCollision';
+      // TODO: Some cleanup here? I don't know.
+    case 'followThrough':
+      this.state = 'followThrough';
+      // Update the time elapsed since release
+      this.releasedTimeElapsed += dt;
+      // Continue moving for a bit while we fade out
+      this.position = add(this.position, scale(dt, this.collisionVelocity));
+      // TODO: Interpolate the cue stick's alpha
+      // Wait until we are fully disappeared
+      if (this.releasedTimeElapsed < CUE_STICK_TIME_TO_COLLISION + CUE_STICK_TIME_AFTER_COLLISION) {
+        break;
+      }
+    case 'postFollowThrough':
+      // Reset the cue stick state for the next shot
+      this.releasedTimeElapsed = 0.0;
+      this.initialPosition = undefined;
+      this.collisionPosition = undefined;
+      this.collisionVelocity = undefined;
+      // Wait for the next shot
+      this.state = 'idle';
+      break;
+    default:
+      throw "Unknown cue stick state '" + this.state + "'!";
   }
-  // TODO: Determine where the mouse cursor is relative to the cue ball and
-  // draw the cue stick
-  var stickTransformation = new TransformationStack();
-  var cueBallDirection = normalize(subtract(this.cueBallPosition, vec3(this.cursorPosition[0], this.cursorPosition[1], this.cueBallPosition[2])));
-  // TODO: Consider the state of the cue stick and animate accordingly
-  // Rotate the cue stick so that it's pointing from the cursor position to the
-  // cue ball
-  // FIXME: We should rotate about our parent's Z axis...
-  this.orientation = quat(vec3(0.0, 0.0, 1.0), Math.atan2(cueBallDirection[1], cueBallDirection[0]));
-
-  // Move the cue stick to the cursor position (in front of the cue ball)
-  this.position = vec3(this.cursorPosition[0], this.cursorPosition[1], this.cueBallPosition[2]);
-
-  // FIXME: This might look better if we translated the stick along its local Z axis. For now it looks fine.
 };
-// TODO: Write a draw method that fades the CueStick in and out?
+CueStick.prototype.draw = function(gl, modelWorld, worldView, projection) {
+  // Don't bother drawing the cue stick while it's not being used
+  if (this.state == 'idle') {
+    return;
+  }
+
+  // TODO: Pass alpha to the shader
+
+  // TODO: Draw a line to the cue ball (especially for perspective shots)
+
+  MeshObject.prototype.draw.call(this, gl, modelWorld, worldView, projection);
+}
 
 //------------------------------------------------------------
 // Prototype for cameras
