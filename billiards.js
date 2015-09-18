@@ -42,8 +42,6 @@ var TABLE_EDGE_WIDTH = Math.max(
     (TABLE_MODEL_WIDTH - TABLE_WIDTH)/2);
 var BALL_EDGE_EPSILON = TABLE_EDGE_WIDTH + BALL_RADIUS;
 var ORTHO_MARGIN = MAX_SHOT_DISTANCE - BALL_EDGE_EPSILON;  // The margin in meters when in orthographic view
-console.log("ORTHO_MARGIN: " + ORTHO_MARGIN);
-console.log("BALL_EDGE_EPSILON: " + BALL_EDGE_EPSILON);
 
 // Ball rack positions
 // Balls in racks are arranged in a triangular pattern. See:
@@ -53,7 +51,6 @@ for (var i = 0; i < 5; ++i) {
   for (var j = 0; j <= i; ++j) {
     TRIANGLE_RACK.push(vec2((TABLE_LENGTH/4) + i*Math.sqrt(3*BALL_RADIUS*BALL_RADIUS),
                             j*(BALL_DIAMETER) - i*(BALL_RADIUS)));
-    console.log("Pushed ball to triangle rack (" + TRIANGLE_RACK[TRIANGLE_RACK.length - 1][0] + "," + TRIANGLE_RACK[TRIANGLE_RACK.length - 1][1] + ")");
   }
 }
 var DIAMOND_RACK = [];
@@ -89,7 +86,6 @@ FRONT_SIDE_POCKET_CAMERA_ORIENTATION = quat(-0.001, -0.510, -0.860, -0.002);
 FRONT_SIDE_POCKET_CAMERA_FOV = 100/2;  // Degrees
 FRONT_SIDE_POCKET_CAMERA_NEAR = .01;
 FRONT_SIDE_POCKET_CAMERA_FAR = 100;
-
 
 function animate(dt) {
   // Simulate physics, game state, and cameras in BilliardTable
@@ -210,13 +206,16 @@ window.onload = function init() {
   };
   window.onkeydown = function(event) {
     switch (event.keyCode) {
+      /*
       case 37:  // Left Arrow
         billiardTable.currentCamera.orientation = normalize(qmult(billiardTable.currentCamera.orientation, quat(0.0, 0.00087, 0.0, 1.0)))
         break;
       case 39:  // Right Arrow
         billiardTable.currentCamera.orientation = normalize(qmult(billiardTable.currentCamera.orientation, quat(0.0, -0.00087, 0.0, 1.0)));
         break;
+        */
 
+      /*
       case 33:  // Page Up
         frontSidePocketCamera.position[1] += 0.001
         console.log("frontSidePocketCamera Y: " + frontSidePocketCamera.position[1]);
@@ -233,6 +232,7 @@ window.onload = function init() {
         frontSidePocketCamera.position[2] -= 0.001
         console.log("frontSidePocketCamera Z: " + frontSidePocketCamera.position[2]);
         break;
+        */
 
       /* Debugging for broken verticies */
       /*
@@ -257,13 +257,13 @@ window.onload = function init() {
 };
 
 function startGame() {
+  debug = new GraphicsDebug(assets["debug"]);
+
   //----------------------------------------
   // TODO: Create game objects
   //----------------------------------------
   // TODO: Allow user to select different game modes
   billiardTable = new BilliardTable(EIGHT_BALL_MODE);
-
-  debug = new GraphicsDebug(assets["debug"]);
 
   // Start the asynchronous game loop
   tick();
@@ -1022,6 +1022,16 @@ var BilliardTable = function(gamemode, position, orientation) {
 
   // Initialize the game logic state machine
   this.gameState = 'start';
+
+  // TODO: Draw some lines for debugging cushion collision
+  for (var i = 0; i < CUSHIONS.length; ++i) {
+    for (var j = 0; j < CUSHIONS[i].points.length; ++j) {
+      debug.drawLine(
+          vec3(CUSHIONS[i].points[j][0], CUSHIONS[i].points[j][1], BALL_RADIUS+0.005),
+          vec3(CUSHIONS[i].points[(j+1)%CUSHIONS[i].points.length][0], CUSHIONS[i].points[(j+1)%CUSHIONS[i].points.length][1], BALL_RADIUS+0.005));
+
+    }
+  }
 }
 BilliardTable.prototype = Object.create(MeshObject.prototype);
 BilliardTable.prototype.setCurrentCamera = function(camera) {
@@ -1265,7 +1275,6 @@ BilliardTable.prototype.tickGameLogic = function(dt) {
       }
     case 'postSimulation':
       this.gameState = 'postSimulation';
-      console.log("The balls stopped yay.");
       // TODO: Play replays (if we have any pocketed balls)
       // TODO: Determine what turn is next (i.e. cue shot, cue ball drop, or break shot)
       // TODO: Start the next turn
@@ -1315,7 +1324,6 @@ BilliardTable.prototype.tableCoordinatesFromMouseClick = function(x, y) {
   var intersectionPoint = linePlaneIntersection(
       vec4(this.currentCamera.getWorldPosition()), ray,
       vec4(this.getWorldPosition()), mult(vec4(0.0, 0.0, 1.0, 0.0), quatToMatrix(qinverse(this.getWorldOrientation()))));  // FIXME: This is in world coordinates; we probably want this is billiard table coordinates
-//  debug.drawLine(add(this.currentCamera.getWorldPosition(), scale(0.5, vec3(ray))), add(this.getWorldPosition(), scale(100, vec3(ray))));
   return intersectionPoint;
 }
 BilliardTable.prototype.mouseDownEvent = function(event) {
@@ -1335,8 +1343,7 @@ BilliardTable.prototype.mouseUpEvent = function(event) {
   if (typeof this.mouseStart != 'undefined') {
     // FIXME: I should consider the total size of the table when computing the drag vector
     this.mouseDragVector = subtract(this.mouseEnd, this.mouseStart);
-    console.log("Mouse drag vector: (" + this.mouseDragVector[0] + "," + this.mouseDragVector[1] + ")");
-    debug.drawLine(vec3(this.mouseStart[0], this.mouseStart[1], 0.01), vec3(this.mouseEnd[0], this.mouseEnd[1], 0.01));
+//    debug.drawLine(vec3(this.mouseStart[0], this.mouseStart[1], 0.01), vec3(this.mouseEnd[0], this.mouseEnd[1], 0.01));
     this.mouseStart = undefined;
     // TODO: Consider the game state before moving the cue ball; I should probably add a BilliardTable.startCueStick() function
     // TODO: Scale the velocity to something that feels good
@@ -1463,20 +1470,16 @@ CueStick.prototype.tick = function(dt) {
       this.initialPosition = this.position;
       this.collisionPosition = add(this.position, add(subtract(this.cueBallPosition, this.position), scale(BALL_RADIUS, normalize(subtract(this.position, this.cueBallPosition)))));
       this.collisionVelocity = scale(1/CUE_STICK_TIME_TO_COLLISION, subtract(this.collisionPosition, this.initialPosition));
-      console.log("cue stick initialPosition: " + this.initialPosition);
-      console.log("cue stick collisionPosition: " + this.collisionPosition);
     case 'released':
       this.state = 'released';
       // Update the time elapsed since release
       this.releasedTimeElapsed += dt;
-      console.log("releasedTimeElapsed: " + this.releasedTimeElapsed);
       // Interpolate between the initial position and the collision position to
       // determine our position
       this.position = add(  // TODO: Use a formula with some stick acceleration rather than just zero
           scale(1.0 - this.releasedTimeElapsed/CUE_STICK_TIME_TO_COLLISION, this.initialPosition),
           scale(this.releasedTimeElapsed/CUE_STICK_TIME_TO_COLLISION, this.collisionPosition));
       if (this.releasedTimeElapsed < CUE_STICK_TIME_TO_COLLISION) {
-        console.log("Good we broke out of here");
         break;
       }
     case 'postCollision': 
@@ -1594,7 +1597,6 @@ Camera.prototype.lookAt = function(object, preserveRoll) {
     zAxisCameraSpace = normalize(zAxisCameraSpace);
     // NOTE: We treat the camera's Y-axis as the X-axis argument to atan2(y,x)
     rollAngle = Math.atan2(zAxisCameraSpace[0], zAxisCameraSpace[1]);
-    console.log("rollAngle: " + rollAngle);
   } else {
     rollAngle = 0.0;
   }
@@ -1604,12 +1606,8 @@ Camera.prototype.lookAt = function(object, preserveRoll) {
   // quaternion rotation.
   var cameraDirection = vec4(0.0, 0.0, -1.0, 0.0);
   var objectDirection = vec4(subtract(object.getWorldPosition(), this.getWorldPosition()));
-  console.log("object.getWorldPosition(): " + printVector(object.getWorldPosition()));
-  console.log("this.getWorldPosition(): " + printVector(this.getWorldPosition()));
   objectDirection[3] = 0.0;
   objectDirection = mult(objectDirection, quatToMatrix(qinverse(this.getWorldOrientation())));
-  console.log("this.getWorldOrientation(): " + this.getWorldOrientation());
-  console.log("objectDirection: " + printVector(objectDirection));
   objectDirection = normalize(objectDirection);
   var rotationAxis = cross(cameraDirection, objectDirection);
   var angle = Math.acos(dot(cameraDirection, objectDirection));
@@ -1652,11 +1650,7 @@ Camera.prototype.screenPointToWorldRay = function(point, width, height) {
                                0,        0, 0, 1);
   screenTransform = mult(screenTransform, screenScale);
 
-  console.log("point: " + printVector(point));
-  console.log("width: " +width + "  height: " + height);
-  console.log("screenTransform matrix: " + printMatrix(screenTransform));
   var deviceSpaceRay = mult(vec4(point), screenTransform);
-  console.log("deviceSpaceRay: " + printVector(deviceSpaceRay));
 
   /*
    * ...which, after crossing back over the perspective divide, are rays not
@@ -1675,11 +1669,9 @@ Camera.prototype.screenPointToWorldRay = function(point, width, height) {
    * rays relative to the camera's local origin in eye space...
    */
   var inverseProjectionMatrix = inverse(this.projectionTransformation(width/height).peek());
-  console.log("inverseProjectionMatrix: " + printMatrix(inverseProjectionMatrix));
   var eyeSpaceRay = mult(deviceSpaceRay, inverseProjectionMatrix);
   eyeSpaceRay[2] = -1;
   eyeSpaceRay[3] = 0;
-  console.log("eyeSpaceRay: " + printVector(eyeSpaceRay));
 
   /*
    * ...which, after being rotated by the inverse of the camera's orientation,
@@ -1688,7 +1680,6 @@ Camera.prototype.screenPointToWorldRay = function(point, width, height) {
   // NOTE: I have no idea why this.getWorldOrientation() doesn't need to be
   // inverted. I should investigate.
   var worldSpaceRay = normalize(mult(eyeSpaceRay, quatToMatrix(this.getWorldOrientation())));
-  console.log("worldSpaceRay: " + printVector(worldSpaceRay));
 
   // TODO: Take a breather.
   return worldSpaceRay;
@@ -1797,13 +1788,6 @@ Camera.prototype.tick = function(dt) {
       // TODO: Compute the current position from the angular displacement
       this.position = vec3(mult(vec4(this.animation.initialPosition), quatToMatrix(quat(this.animation.axis, this.animation.angularDisplacement))));
 
-      console.log("tried to set position: " + printVector(vec3(mult(vec4(this.animation.initialPosition), quatToMatrix(quat(this.animation.axis, this.animation.angularDisplacement))))));
-      console.log("initialPosition: " + printVector(this.animation.initialPosition));
-      console.log("angularDisplacement: " + this.animation.angularDisplacement);
-      console.log("angularVelocity: " + this.animation.angularVelocity);
-      console.log("axis: " + printVector(this.animation.axis));
-      console.log("quaternion: " + printVector(quat(this.animation.axis, this.animation.angularDisplacement)));
-      console.log("rotation matrix: " + printMatrix(quatToMatrix(quat(this.animation.axis, this.animation.angularDisplacement))));
       this.lookAt(this.animation.object);
       break;
   }
@@ -1926,21 +1910,85 @@ function collisionDisplacement(p, q, r) {
 // Prototype for polygons (for use with SAT algorithm)
 //------------------------------------------------------------
 
-
 // TODO: Implement algorithm for Separating Axis Theorem collision detection
+var Polygon = function(points) {
+  this.points = points.slice();
+  for (var i = 0; i < this.points.length; ++i) {
+    console.log("Polygon points " + printVector(this.points[i]));
+  }
+}
+Polygon.prototype.checkCollision = function(other) {
+  // Iterate through all of our faces
+  for (var i = 0; i < this.points; ++i) {
+    var a = this.points[i];
+    var b = this.points[(i+1)%this.points];
+    // TODO: Project all of the points (for both shapes) onto the normal for
+    // this face to get the end points
+    abPerp = normalize(vec2(a, -a^2/b));
+    selfProject = this.project(abPerp);
+    otherProject = other.project(abPerp);
+    console.log("selfProject: " + printVector(selfProject));
+    console.log("otherProject: " + printVector(otherProject));
+  }
+}
+Polygon.prototype.mult = function(matrix) {
+  // Apply a matrix transformation to our points and return the resulting polygon
+  var transformedPoints = [];
+  for (var i = 0; i < this.points.length; ++i) {
+    transformedPoints.push(mult(this.points[i], matrix));
+  }
+  return new Polygon(transformedPoints);
+}
+var Circle = function(point, radius) {
+}
+
+// Table pocket/cushin positions for collision detection (values from the model)
+var CUSHIONS = [];
+var FRONT_RIGHT_CUSHION_LEFT_BACK = vec2(5.71499E-2, -64.21501E-2);
+var FRONT_RIGHT_CUSHION_LEFT_CORNER = vec2(7.45926E-2, -58.50002E-2);
+var FRONT_RIGHT_CUSHION_RIGHT_CORNER = vec2(1.08992, -58.50002E-2);
+var FRONT_RIGHT_CUSHION_RIGHT_BACK = vec2(1.14556, -64.0191E-2);
+var FRONT_RIGHT_CUSHION = new Polygon( [ FRONT_RIGHT_CUSHION_LEFT_BACK,
+                                         FRONT_RIGHT_CUSHION_LEFT_CORNER,
+                                         FRONT_RIGHT_CUSHION_RIGHT_CORNER,
+                                         FRONT_RIGHT_CUSHION_RIGHT_BACK ] );
+CUSHIONS.push(FRONT_RIGHT_CUSHION);
+
+// The right cushion is mirrored about the Y-axis
+var RIGHT_CUSHION_BOTTOM_BACK = vec2(1.22638, -55.93686E-2);
+var RIGHT_CUSHION_BOTTOM_CORNER = vec2(1.17074, -50.41774E-2);
+var RIGHT_CUSHION_TOP_CORNER = mult(RIGHT_CUSHION_BOTTOM_CORNER,
+                                    mat2(1.0,  0.0,
+                                         0.0, -1.0));
+var RIGHT_CUSHION_TOP_BACK = mult(RIGHT_CUSHION_BOTTOM_BACK,
+                                  mat2(1.0,  0.0,
+                                       0.0, -1.0));
+var RIGHT_CUSHION = new Polygon( [ RIGHT_CUSHION_BOTTOM_BACK,
+                                   RIGHT_CUSHION_BOTTOM_CORNER,
+                                   RIGHT_CUSHION_TOP_CORNER,
+                                   RIGHT_CUSHION_TOP_BACK ] );
+CUSHIONS.push(RIGHT_CUSHION);
+
+// All other cushins are mirrors of the preceding cushins
+var FRONT_LEFT_CUSHION = FRONT_RIGHT_CUSHION.mult(mat2(-1.0, 0.0,
+                                                        0.0, 1.0));
+CUSHIONS.push(FRONT_LEFT_CUSHION);
+var BACK_RIGHT_CUSHION = FRONT_RIGHT_CUSHION.mult(mat2(1.0,  0.0,
+                                                       0.0, -1.0));
+CUSHIONS.push(BACK_RIGHT_CUSHION);
+var BACK_LEFT_CUSHION = FRONT_RIGHT_CUSHION.mult(mat2(-1.0,  0.0,
+                                                       0.0, -1.0));
+CUSHIONS.push(BACK_LEFT_CUSHION);
+var LEFT_CUSHION = RIGHT_CUSHION.mult(mat2(-1.0,  0.0,
+                                            0.0,  1.0));
+CUSHIONS.push(LEFT_CUSHION);
 
 function linePlaneIntersection(linePoint, lineVector, planePoint, planeNormal) {
-  console.log("lineVector: " + printVector(lineVector));
-  console.log("linePoint: " + printVector(linePoint));
-  console.log("planePoint: " + printVector(planePoint));
-  console.log("planeNormal: " + printVector(planeNormal));
   var denominator = dot(lineVector, planeNormal);
   if (denominator == 0.0) {
     return undefined;  // The line is parallel to the plane
   }
-  console.log("denominator: " + denominator);
   var intersectionPoint = add(scale(dot(subtract(planePoint, linePoint), planeNormal)/denominator, lineVector), linePoint);
-  console.log("dot(subtract(linePoint, planePoint), planeNormal): " + dot(subtract(linePoint, planePoint), planeNormal));
   intersectionPoint[3] = 1.0;
 
   return intersectionPoint;
