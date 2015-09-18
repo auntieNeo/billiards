@@ -3,20 +3,6 @@
 //------------------------------------------------------------
 var gl;
 
-// Various billiards dimensions in meters
-/*
-// Nine-foot table
-var TABLE_LENGTH = 254.0E-2;  // 254cm
-var TABLE_WIDTH = 127.0E-2;  // 127cm
-*/
-// Eight-foot table
-// NOTE: These are the dimensions of the play area.
-var TABLE_LENGTH = 234.0E-2;  // 234cm
-var TABLE_WIDTH = 117.0E-2;  // 117cm
-var TABLE_MODEL_LENGTH = 2.664032;  // m  // TODO: The width can be computed from the model
-var TABLE_MODEL_WIDTH = 1.492389;  // m
-// FIXME: The ortho margin should be computed by the worst possible power shot scenario.
-var ORTHO_MARGIN = 0.2;  // The margin in meters when in orthographic view
 // American-style ball
 var BALL_DIAMETER = 57.15E-3;  // 57.15mm
 var BALL_RADIUS = BALL_DIAMETER / 2;
@@ -36,6 +22,28 @@ var CUE_STICK_TIME_AFTER_COLLISION = 0.1;
 var CURSOR_RADIUS_EPSILON = 0.4;  // Vectors within this radius are the weakest shot; this allows us to make shots at a greater radius and therefore with more accuracy.
 var SHOT_VELOCITY_EPSILON = 0.03;  // The weakest shot that you're allowed to make. This is a little higher than zero to avoid confusing the shot machines.
 var MAX_SHOT_VELOCITY = 3.0;  // m/s
+var MAX_SHOT_DISTANCE = CURSOR_RADIUS_EPSILON + (BALL_RADIUS + MAX_SHOT_VELOCITY*CUE_STICK_TIME_TO_COLLISION);
+
+// Various billiards dimensions in meters
+/*
+// Nine-foot table
+var TABLE_LENGTH = 254.0E-2;  // 254cm
+var TABLE_WIDTH = 127.0E-2;  // 127cm
+*/
+// Eight-foot table
+// NOTE: These are the dimensions of the play area.
+var TABLE_LENGTH = 234.0E-2;  // 234cm
+var TABLE_WIDTH = 117.0E-2;  // 117cm
+var TABLE_MODEL_LENGTH = 2.664032;  // m  // TODO: The width can be computed from the model
+var TABLE_MODEL_WIDTH = 1.492389;  // m
+// FIXME: The ortho margin should be computed by the worst possible power shot scenario.
+var TABLE_EDGE_WIDTH = Math.max(
+    (TABLE_MODEL_LENGTH - TABLE_LENGTH)/2,
+    (TABLE_MODEL_WIDTH - TABLE_WIDTH)/2);
+var BALL_EDGE_EPSILON = TABLE_EDGE_WIDTH + BALL_RADIUS;
+var ORTHO_MARGIN = MAX_SHOT_DISTANCE - BALL_EDGE_EPSILON;  // The margin in meters when in orthographic view
+console.log("ORTHO_MARGIN: " + ORTHO_MARGIN);
+console.log("BALL_EDGE_EPSILON: " + BALL_EDGE_EPSILON);
 
 // Ball rack positions
 // Balls in racks are arranged in a triangular pattern. See:
