@@ -15,6 +15,7 @@ var TABLE_LENGTH = 234.0E-2;  // 234cm
 var TABLE_WIDTH = 117.0E-2;  // 117cm
 var TABLE_MODEL_LENGTH = 2.664032;  // m  // TODO: The width can be computed from the model
 var TABLE_MODEL_WIDTH = 1.492389;  // m
+// FIXME: The ortho margin should be computed by the worst possible power shot scenario.
 var ORTHO_MARGIN = 0.2;  // The margin in meters when in orthographic view
 // American-style ball
 var BALL_DIAMETER = 57.15E-3;  // 57.15mm
@@ -32,6 +33,9 @@ var NUMBERED_BALL_MASS = 0.16;  // kg
 var CUE_STICK_TIME_TO_FADE_IN = 0.1;
 var CUE_STICK_TIME_TO_COLLISION = 0.1;  // Determines how fast the cue stick must travel
 var CUE_STICK_TIME_AFTER_COLLISION = 0.1;
+var CURSOR_RADIUS_EPSILON = 0.4;  // Vectors within this radius are the weakest shot; this allows us to make shots at a greater radius and therefore with more accuracy.
+var SHOT_VELOCITY_EPSILON = 0.03;  // The weakest shot that you're allowed to make. This is a little higher than zero to avoid confusing the shot machines.
+var MAX_SHOT_VELOCITY = 3.0;  // m/s
 
 // Ball rack positions
 // Balls in racks are arranged in a triangular pattern. See:
@@ -66,6 +70,9 @@ MAIN_CAMERA_ORIENTATION = vec4(0.463, 0.275, 0.437, 0.720);
 MAIN_CAMERA_FOV = 49.134/2;  // Degrees
 MAIN_CAMERA_NEAR = .1;
 MAIN_CAMERA_FAR = 100;
+MAIN_CAMERA_ANGULAR_ACCELERATION = 1.0;
+MAIN_CAMERA_MAX_ANGULAR_VELOCITY = Math.PI/1.0;
+
 MAIN_ORTHO_CAMERA_POSITION = vec3(0.0, 0.0, 1.0);
 MAIN_ORTHO_CAMERA_ORIENTATION = vec4(0.0, 0.0, 0.0, 1.0);
 
@@ -277,6 +284,7 @@ var textureAssets = [
   "common/billiard_ball_14.png",
   "common/billiard_ball_15.png",
   "common/billiard_table_simple_colors.png",
+  "common/cue_stick.png",
   "common/test.png"
 ];
 var shaderAssets = [ { name: "billiardball", vert: "billiardball-vert", frag: "billiardball-frag",
@@ -972,6 +980,11 @@ var BilliardTable = function(gamemode, position, orientation) {
             FRONT_SIDE_POCKET_CAMERA_POSITION,
             FRONT_SIDE_POCKET_CAMERA_ORIENTATION)
   }
+  this.cameras.mainPerspective.interactiveRotate(
+      this, vec3(0.0, 0.0, 1.0),
+      MAIN_CAMERA_ANGULAR_ACCELERATION,
+      MAIN_CAMERA_ANGULAR_ACCELERATION,  // friction
+      MAIN_CAMERA_MAX_ANGULAR_VELOCITY);
   this.currentCamera = this.cameras.mainOrthographic;
   this.currentCameraAngle = 'orthographic';
   this.cameraState = 'interaction';  // XXX: Change this to "pre-game" or "idle"
@@ -991,8 +1004,12 @@ var BilliardTable = function(gamemode, position, orientation) {
     billiardTable.mouseUpEvent(event);
   }
   // NOTE: The HTML5 canvas doesn't get keyboard focus very easily
+  this.keysDepressed = {};
   window.onkeydown = function(event) {
     billiardTable.keyDownEvent(event);
+  }
+  window.onkeyup = function(event) {
+    billiardTable.keyUpEvent(event);
   }
 
   // Initialize the game logic state machine
@@ -1257,6 +1274,16 @@ BilliardTable.prototype.tickCameras = function(dt) {
       switch (this.currentCameraAngle) {
         case 'perspective':
           this.currentCamera = this.cameras.mainPerspective;
+          // The arrow keys control the perpective camera
+          if ((this.keysDepressed.leftArrow == true) &&
+              (this.keysDepressed.rightArrow == false)) {
+            window.alert("left arrow pressed");
+            this.currentCamera.rotateClockwise();
+          } else if (this.keysDepressed.leftArrow == false &&
+                     this.keysDepressed.rightArrow == true) {
+            this.currentCamera.rotateClockwise();
+          } else {
+          }
         break;
         case 'orthographic':
           this.currentCamera = this.cameras.mainOrthographic;
@@ -1293,6 +1320,7 @@ BilliardTable.prototype.mouseLeaveEvent = function(event) {
   this.mouseStart = undefined;
   this.mousePos = undefined;
   this.mouseDown = undefined;
+//  this.keysDepressed = {};  // Dead man's switch for camera controls, etc.
 }
 BilliardTable.prototype.mouseUpEvent = function(event) {
   this.mouseEnd = this.tableCoordinatesFromMouseClick(event.clientX, event.clientY);
@@ -1309,7 +1337,6 @@ BilliardTable.prototype.mouseUpEvent = function(event) {
 }
 BilliardTable.prototype.keyDownEvent = function(event) {
   switch (event.keyCode) {
-    case 0x0:  // Spacebar
     case 0x20:  // Spacebar
       // Toggle between perspective and orthographic view
       if (this.currentCameraAngle != 'orthographic') {
@@ -1317,6 +1344,24 @@ BilliardTable.prototype.keyDownEvent = function(event) {
       } else {
         this.currentCameraAngle = 'perspective';
       }
+      break;
+    // Arrow keys are used for camera controls, with most of the logic inside
+    // tickCameras()
+    case 0x25:  // Left Arrow
+      this.keysDepressed.leftArrow = true;
+      break;
+    case 0x25:  // Right Arrow
+      this.keysDepressed.rightArrow = true;
+      break;
+  }
+}
+BilliardTable.prototype.keyUpEvent = function(event) {
+  switch (event.keyCode) {
+    case 0x25:  // Left Arrow
+      this.keysDepressed.leftArrow = false;
+      break;
+    case 0x25:  // Right Arrow
+      this.keysDepressed.rightArrow = false;
       break;
   }
 }
@@ -1327,7 +1372,7 @@ BilliardTable.prototype.keyDownEvent = function(event) {
 var CueStick = function(position, orientation) {
   // Iherit from mesh object
   MeshObject.call(this,
-      "common/cue_stick.obj", "common/test.png", "billiardball",  // FIXME: Write a shader for the cue stick? Or rename the shader.
+      "common/cue_stick.obj", "common/cue_stick.png", "billiardball",  // FIXME: Write a shader for the cue stick? Or rename the shader.
       position, orientation);
 
   // Start our state machine idle
@@ -1376,14 +1421,29 @@ CueStick.prototype.tick = function(dt) {
       // TODO: Determine where the mouse cursor is relative to the cue ball and
       // draw the cue stick
       var stickTransformation = new TransformationStack();
-      var cueBallDirection = normalize(subtract(this.cueBallPosition, vec3(this.cursorPosition[0], this.cursorPosition[1], this.cueBallPosition[2])));
+      var cueBallVector = subtract(this.cueBallPosition, vec3(this.cursorPosition[0], this.cursorPosition[1], this.cueBallPosition[2]));
+      var cueBallDistance = length(cueBallVector);
+      var cueBallDirection = scale(1/cueBallDistance, cueBallVector);
+
       // Rotate the cue stick so that it's pointing from the cursor position to the
       // cue ball
       // FIXME: We should rotate about our parent's Z axis...
       this.orientation = quat(vec3(0.0, 0.0, 1.0), Math.atan2(cueBallDirection[1], cueBallDirection[0]));
 
-      // Move the cue stick to the cursor position (in front of the cue ball)
-      this.position = vec3(this.cursorPosition[0], this.cursorPosition[1], this.cueBallPosition[2]);
+      if (cueBallDistance < CURSOR_RADIUS_EPSILON) {
+        // Clamp the magnitude of any shots within CURSOR_RADIUS_EPSILON of the
+        // ball to the weakest shot.
+        this.position = add(scale(-(BALL_RADIUS + SHOT_VELOCITY_EPSILON*CUE_STICK_TIME_TO_COLLISION), cueBallDirection), this.cueBallPosition);
+        // FIXME: Ignore any shots from this distance
+      } else if (cueBallDistance > CURSOR_RADIUS_EPSILON + (BALL_RADIUS + MAX_SHOT_VELOCITY*CUE_STICK_TIME_TO_COLLISION)) {
+        this.position = add(scale(-(BALL_RADIUS + MAX_SHOT_VELOCITY*CUE_STICK_TIME_TO_COLLISION), cueBallDirection), this.cueBallPosition);
+        // TODO: Smooth the transition from near-max to max velocity (it looks a little stiff)
+      } else {
+        // Subtract the CURSOR_RADIUS_EPSILON from our radius so we gain more
+        // accuracy even for weak shots (i.e. the cursor can tranverse more
+        // pixels for better angles with a large radius).
+        this.position = add(scale(-(cueBallDistance - CURSOR_RADIUS_EPSILON), cueBallDirection), this.cueBallPosition);
+      }
 
       // FIXME: This might look better if we translated the stick along its local Z axis. It might also look much worse, since the tip of the cue stick would be much further from the table. For now it looks fine.
       break;
@@ -1536,8 +1596,12 @@ Camera.prototype.lookAt = function(object, preserveRoll) {
   // quaternion rotation.
   var cameraDirection = vec4(0.0, 0.0, -1.0, 0.0);
   var objectDirection = vec4(subtract(object.getWorldPosition(), this.getWorldPosition()));
+  console.log("object.getWorldPosition(): " + printVector(object.getWorldPosition()));
+  console.log("this.getWorldPosition(): " + printVector(this.getWorldPosition()));
   objectDirection[3] = 0.0;
   objectDirection = mult(objectDirection, quatToMatrix(qinverse(this.getWorldOrientation())));
+  console.log("this.getWorldOrientation(): " + this.getWorldOrientation());
+  console.log("objectDirection: " + printVector(objectDirection));
   objectDirection = normalize(objectDirection);
   var rotationAxis = cross(cameraDirection, objectDirection);
   var angle = Math.acos(dot(cameraDirection, objectDirection));
@@ -1637,11 +1701,32 @@ Camera.prototype.rotateAbout = function(object, axis, angularVelocity) {
     angularVelocity: angularVelocity
   }
 }
+Camera.prototype.interactiveRotate = function(object, axis, angularAcceleration, angularFrictionAcceleration, maxAngularVelocity) {
+  this.animation = {
+    type: "interactiveRotate",
+    object: object,
+    axis: axis.slice(),
+    angularAcceleration: angularAcceleration,
+    angularFrictionAcceleration: angularFrictionAcceleration,
+    maxAngularVelocity: maxAngularVelocity,
+    angularVelocity: 0.0,
+    angularDisplacement: 0.0,
+    initialPosition: this.position,
+  }
+}
 Camera.prototype.transitionTo = function(camera, stepFunction, callback) {
   // TODO
 }
 Camera.prototype.stopAnimation = function() {
   this.animation = undefined;
+}
+Camera.prototype.rotateCounterClockwise = function() {
+  // Have the camera rotate left for the next tick
+  this.animation.rotateCounterClockwise = true;
+}
+Camera.prototype.rotateClockwise = function() {
+  // Have the camera rotate left for the next tick
+  this.animation.rotateClockwise = true;
 }
 Camera.prototype.tick = function(dt) {
   if (typeof this.animation == 'undefined') {
@@ -1653,6 +1738,9 @@ Camera.prototype.tick = function(dt) {
       this.lookAt(this.animation.object);
       break;
     case 'rotateAbout':
+      // FIXME: Don't forget the position; we don't want any rounding errors
+      // here. Store an initial position and rotate that about the axis to
+      // compute the current position.
       // Calculate the angle to rotate
       var angularDisplacement = this.animation.angularVelocity * dt;
       var transformationStack = new TransformationStack();
@@ -1668,6 +1756,47 @@ Camera.prototype.tick = function(dt) {
       // Look at the object
       this.lookAt(this.animation.object);
 
+      break;
+    case 'interactiveRotate':
+      if (this.animation.rotateCounterClockwise) {
+        // Apply positive angular acceleration (from the user)
+        this.animation.angularVelocity = Math.min(
+            this.animation.angularVelocity + this.animation.angularAcceleration*dt,
+            this.animation.maxAngularVelocity);
+      } else if (this.animation.rotateClockwise) {
+        this.animation.angularVelocity = Math.max(
+            // Apply negative angular acceleration (from the user)
+            this.animation.angularVelocity - this.animation.angularAcceleration*dt,
+            -this.animation.maxAngularVelocity);
+      } else {
+        // Apply angular acceleration due to "friction"
+        if (this.animation.angularVelocity > 0.0) {
+          this.animation.angularVelocity = Math.max(
+              this.animation.angularVelocity - this.animation.angularFrictionAcceleration*dt,
+              0.0);
+        } else if (this.animation.angularVelocity < 0.0) {
+          this.animation.angularVelocity = Math.min(
+              this.animation.angularVelocity + this.animation.angularFrictionAcceleration*dt,
+              0.0);
+        }
+      }
+      // TODO: Update the angular displacement from the calculated angular velocity
+      this.animation.angularDisplacement += this.animation.angularVelocity*dt;
+      // TODO: Wrap the angular displacement aronud 2 PI
+      // FIXME: The math in here only works in world space; it probably breaks
+      // for nested objects
+      // FIXME: I'm not even bothering to translate into the object's space...
+      // TODO: Compute the current position from the angular displacement
+      this.position = vec3(mult(vec4(this.animation.initialPosition), quatToMatrix(quat(this.animation.axis, this.animation.angularDisplacement))));
+
+      console.log("tried to set position: " + printVector(vec3(mult(vec4(this.animation.initialPosition), quatToMatrix(quat(this.animation.axis, this.animation.angularDisplacement))))));
+      console.log("initialPosition: " + printVector(this.animation.initialPosition));
+      console.log("angularDisplacement: " + this.animation.angularDisplacement);
+      console.log("angularVelocity: " + this.animation.angularVelocity);
+      console.log("axis: " + printVector(this.animation.axis));
+      console.log("quaternion: " + printVector(quat(this.animation.axis, this.animation.angularDisplacement)));
+      console.log("rotation matrix: " + printMatrix(quatToMatrix(quat(this.animation.axis, this.animation.angularDisplacement))));
+      this.lookAt(this.animation.object);
       break;
   }
 }
