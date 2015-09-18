@@ -13,6 +13,9 @@ var TABLE_WIDTH = 127.0E-2;  // 127cm
 // NOTE: These are the dimensions of the play area.
 var TABLE_LENGTH = 234.0E-2;  // 234cm
 var TABLE_WIDTH = 117.0E-2;  // 117cm
+var TABLE_MODEL_LENGTH = 2.664032;  // m  // TODO: The width can be computed from the model
+var TABLE_MODEL_WIDTH = 1.492389;  // m
+var ORTHO_MARGIN = 0.2;  // The margin in meters when in orthographic view
 // American-style ball
 var BALL_DIAMETER = 57.15E-3;  // 57.15mm
 var BALL_RADIUS = BALL_DIAMETER / 2;
@@ -63,6 +66,8 @@ MAIN_CAMERA_ORIENTATION = vec4(0.463, 0.275, 0.437, 0.720);
 MAIN_CAMERA_FOV = 49.134/2;  // Degrees
 MAIN_CAMERA_NEAR = .1;
 MAIN_CAMERA_FAR = 100;
+MAIN_ORTHO_CAMERA_POSITION = vec3(0.0, 0.0, 1.0);
+MAIN_ORTHO_CAMERA_ORIENTATION = vec4(0.0, 0.0, 0.0, 1.0);
 
 FRONT_SIDE_POCKET_CAMERA_POSITION = vec3(0.0, 0.57724, 0.055582);
 FRONT_SIDE_POCKET_CAMERA_ORIENTATION = quat(-0.001, -0.510, -0.860, -0.002);
@@ -131,7 +136,6 @@ function tick() {
 
 // TODO: Put these inside some sort of game state object
 var billiardTable;
-var mainCamera;  // TODO: Move this inside the billiardTable object, so that it is always relative to the table surface
 var debug;
 
 
@@ -943,22 +947,34 @@ var BilliardTable = function(gamemode, position, orientation) {
 
   // Collection of camera views for quick access to different camera angles 
   this.cameras = {
-    main: new Camera(
-            { projection: 'perspective',
+    mainPerspective: new Camera(
+            { type: 'perspective',
               fov: MAIN_CAMERA_FOV,
               near: MAIN_CAMERA_NEAR,
               far: MAIN_CAMERA_FAR },
             MAIN_CAMERA_POSITION,
             MAIN_CAMERA_ORIENTATION),
+    mainOrthographic: new Camera(
+            { type: 'orthographic',
+              left: -(TABLE_MODEL_LENGTH/2 + ORTHO_MARGIN),
+              right: TABLE_MODEL_LENGTH/2 + ORTHO_MARGIN,
+              bottom: -(TABLE_MODEL_WIDTH/2 + ORTHO_MARGIN),
+              top: TABLE_MODEL_WIDTH/2 + ORTHO_MARGIN,
+              near: MAIN_CAMERA_NEAR,
+              far: MAIN_CAMERA_FAR },
+            MAIN_ORTHO_CAMERA_POSITION,
+            MAIN_ORTHO_CAMERA_ORIENTATION),
     frontSidePocket: new Camera(
-            { projection: 'perspective',
+            { type: 'perspective',
               fov: FRONT_SIDE_POCKET_CAMERA_FOV,
               near: FRONT_SIDE_POCKET_CAMERA_NEAR,
               far: FRONT_SIDE_POCKET_CAMERA_FAR },
             FRONT_SIDE_POCKET_CAMERA_POSITION,
             FRONT_SIDE_POCKET_CAMERA_ORIENTATION)
   }
-  this.currentCamera = this.cameras.main;
+  this.currentCamera = this.cameras.mainOrthographic;
+  this.currentCameraAngle = 'orthographic';
+  this.cameraState = 'interaction';  // XXX: Change this to "pre-game" or "idle"
 
   // Register events
   var billiardTable = this;
@@ -973,6 +989,10 @@ var BilliardTable = function(gamemode, position, orientation) {
   }
   canvas.onmouseup = function(event) {
     billiardTable.mouseUpEvent(event);
+  }
+  // NOTE: The HTML5 canvas doesn't get keyboard focus very easily
+  window.onkeydown = function(event) {
+    billiardTable.keyDownEvent(event);
   }
 
   // Initialize the game logic state machine
@@ -1231,6 +1251,23 @@ BilliardTable.prototype.tickGameLogic = function(dt) {
   }
 }
 BilliardTable.prototype.tickCameras = function(dt) {
+  // Determine which camera we should be using
+  switch (this.cameraState) {
+    case 'interaction':
+      switch (this.currentCameraAngle) {
+        case 'perspective':
+          this.currentCamera = this.cameras.mainPerspective;
+        break;
+        case 'orthographic':
+          this.currentCamera = this.cameras.mainOrthographic;
+        break;
+        default:
+          throw "Unknown camera angle '" + this.currentCameraAngle + "'!";
+      }
+      break;
+  }
+
+  // Let the camera animate
   this.currentCamera.tick(dt);
 }
 // Various user input event handlers for BilliardTable (most user interaction
@@ -1268,6 +1305,19 @@ BilliardTable.prototype.mouseUpEvent = function(event) {
     // TODO: Consider the game state before moving the cue ball; I should probably add a BilliardTable.startCueStick() function
     // TODO: Scale the velocity to something that feels good
     // TODO: Clamp the maximum velocity
+  }
+}
+BilliardTable.prototype.keyDownEvent = function(event) {
+  switch (event.keyCode) {
+    case 0x0:  // Spacebar
+    case 0x20:  // Spacebar
+      // Toggle between perspective and orthographic view
+      if (this.currentCameraAngle != 'orthographic') {
+        this.currentCameraAngle = 'orthographic';
+      } else {
+        this.currentCameraAngle = 'perspective';
+      }
+      break;
   }
 }
 
@@ -1407,22 +1457,7 @@ CueStick.prototype.draw = function(gl, modelWorld, worldView, projection) {
 var Camera = function (properties, position, orientation) {
   // Iherit from SceneObject
   SceneObject.call(this, position, orientation);
-  this.projection = properties.projection;
-  switch (properties.projection) {
-    case 'orthographic':
-      this.left = properties.left;
-      this.right = properties.right;
-      this.bottom = properties.bottom;
-      this.top = properties.top;
-      this.near = properties.near;
-      this.far = properties.far;
-      break;
-    case 'perspective':
-      this.fov = properties.fov;
-      this.near = properties.near;
-      this.far = properties.far;
-      break;
-  }
+  this.projection = properties;
 }
 Camera.prototype = Object.create(SceneObject.prototype);
 Camera.prototype.worldViewTransformation = function() {
@@ -1447,12 +1482,28 @@ Camera.prototype.worldViewTransformation = function() {
 Camera.prototype.projectionTransformation = function(aspect) {
   var projection = new TransformationStack();
 
-  switch (this.projection) {
+  switch (this.projection.type) {
     case 'orthographic':
-      // TODO: Avoid changing aspect when projecting orthographic views
+      var width = this.projection.right - this.projection.left;
+      var height = this.projection.top - this.projection.bottom;
+      // Avoid changing aspect when projecting orthographic views. To do this,
+      // we "fudge" the table model size with some "letterbox" margins.
+      if (width / height > aspect) {
+        // The area we're projecting is wider than the screen is wide
+        var fudge = width / aspect - height;
+        projection.push(ortho(this.projection.left, this.projection.right,
+                              this.projection.bottom - fudge/2, this.projection.top + fudge/2,
+                              this.projection.near, this.projection.far));
+      } else {
+        // The table is taller than the screen is tall
+        var fudge = height * aspect - width;
+        projection.push(ortho(this.projection.left - fudge/2, this.projection.right + fudge/2,
+                              this.projection.bottom, this.projection.top,
+                              this.projection.near, this.projection.far));
+      }
       break;
     case 'perspective':
-      projection.push(perspective(this.fov, aspect, this.near, this.far));
+      projection.push(perspective(this.projection.fov, aspect, this.projection.near, this.projection.far));
       break;
     default:
       throw "projectionTransformation(): unknown projection type for camera";
