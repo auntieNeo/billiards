@@ -4,7 +4,8 @@
 var gl;
 
 // American-style ball
-var BALL_DIAMETER = 57.15E-3;  // 57.15mm
+var BALL_DIAMETER = 150.15E-3;  // 57.15mm
+//var BALL_DIAMETER = 57.15E-3;  // 57.15mm
 var BALL_RADIUS = BALL_DIAMETER / 2;
 
 // Various billiards physics constants
@@ -65,7 +66,7 @@ var NINE_BALL_NUM_BALLS = 10;
 var STRAIGHT_POOL_NUM_BALLS = 16;
 
 // Animation constants
-var MAX_DT = 0.01;  // Arbitrary s  // FIXME: un-marry the animation dt and the simulation dt
+var MAX_DT = 0.001; // XXX: This used to be 0.01  // Arbitrary s  // FIXME: un-marry the animation dt and the simulation dt
 var LARGE_DT = MAX_DT * 10;  // Arbitrary limit for frame drop warning
 var DETERMINISTIC_DT = true;
 
@@ -443,7 +444,7 @@ function loadObjMesh(text) {
     var fields = line.split(/ /);
     if (fields.length <= 0)
       continue;  // Skip blanks
-    // TODO: Determine the line type by its first entry
+    // Determine the line type by its first entry
     switch (fields[0]) {
       case 'o': 
         // Geometric object declaration
@@ -488,7 +489,6 @@ function loadObjMesh(text) {
           window.alert("Error: Only surfaces made of triangles are supported!");
         mesh.faces.push(fields.slice(1, 4));
         for (var j = 1; j < fields.length; ++j) {
-          // TODO: 
           vertexFields = fields[j].split(/\//);
           if (vertexFields.length != 3)
             window.alert("Error: Unknown vertex format!");
@@ -754,17 +754,6 @@ MeshObject.prototype.prepareVertexBuffers = function(gl) {
                            4 * 5);    // Normal starts at the sixth value stored
 }
 MeshObject.prototype.setMatrixUniforms = function(gl, modelWorld, worldView, projection) {
-  // TODO: Pass the model-view matrix and the projection matrix from the camera
-  // The camera is defined by a position, orientation, aspect, and focal
-  // length. Each model to be rendered needs to be transformed from model space
-  // to world space, and from world space to eye space (the space in which the
-  // camera's position at the origin). It is enough to transform the model into
-  // the space of its parent model and then multiply that transform by the
-  // parent's model-view matrix. There is no need to compute a model-world
-  // matrix, unless a shader needs it for lighting. The projection matrix is
-  // provided by the camera and determines the aspect and focal length
-  // (including orthogonal versus perspective projection) for the rendered
-  // scene.
   gl.uniformMatrix4fv(this.shaderProgram.uniforms.modelViewMatrix, false, flatten(mult(worldView.peek(), modelWorld.peek())));
   gl.uniformMatrix4fv(this.shaderProgram.uniforms.projectionMatrix, false, flatten(projection.peek()));
 }
@@ -893,26 +882,53 @@ BilliardBall.prototype.tick = function(dt) {
   if (length(this.velocity) < BALL_VELOCITY_EPSILON) {
     this.velocity = vec3(0.0, 0.0, 0.0);
   } else {
-  // Account for rolling resistance, i.e. friction
-  this.velocity = add(this.velocity, scale(-dt*BALL_CLOTH_ROLLING_RESISTANCE_ACCELERATION, normalize(this.velocity)));
-  // Compute the displacement due to velocity
-  var displacement = scale(dt, this.velocity);
-  if (length(displacement) > 0) {   // NOTE: This check is needed for the rotation code to work
-    // Rotate the ball
-    // NOTE: The rotation axis for the ball is perpendicular to the velocity
-    // vector and the table normal (+Z axis). The angular displacement Theta is
-    // related to the linear displacement of the ball r and the radius of the
-    // ball R by the equation Theta=r/R. Quaternions can be easily calculated
-    // from a rotational axis and an angle. In short: find the rotation axis
-    // and angular displacement to make a quaternion.
-    // FIXME: I can probably avoid computing the length twice here
-    var rotationAxis = normalize(cross(vec3(0.0, 0.0, 1.0), displacement));
-    var angularDisplacement = length(displacement) / BALL_RADIUS;
-    this.orientation = qmult(quat(rotationAxis, angularDisplacement), this.orientation);
-    // Displace the ball
-    this.position = add(this.position, displacement);
+    // Account for rolling resistance, i.e. friction
+    this.velocity = add(this.velocity, scale(-dt*BALL_CLOTH_ROLLING_RESISTANCE_ACCELERATION, normalize(this.velocity)));
+    // Compute the displacement due to velocity
+    var displacement = scale(dt, this.velocity);
+    if (length(displacement) > 0) {   // NOTE: This check is needed for the rotation code to work
+      // Rotate the ball
+      // NOTE: The rotation axis for the ball is perpendicular to the velocity
+      // vector and the table normal (+Z axis). The angular displacement Theta is
+      // related to the linear displacement of the ball r and the radius of the
+      // ball R by the equation Theta=r/R. Quaternions can be easily calculated
+      // from a rotational axis and an angle. In short: find the rotation axis
+      // and angular displacement to make a quaternion.
+      // TODO: I can probably avoid computing the length twice here
+      var rotationAxis = normalize(cross(vec3(0.0, 0.0, 1.0), displacement));
+      var angularDisplacement = length(displacement) / BALL_RADIUS;
+      this.orientation = qmult(quat(rotationAxis, angularDisplacement), this.orientation);
+      // Displace the ball
+      this.position = add(this.position, displacement);
+    }
   }
-  }
+}
+var once1 = false;  // XXX
+BilliardBall.prototype.project = function(normal) {
+  // This routine is used in the Separating Axis Theorem algorithm to detect
+  // collisions between ball and cushion
+
+  // TODO: Rotate our center point such that it is in the space where the given
+  // normal is parallel to the X-axis
+  var angle = Math.atan2(normal[1], normal[0]);
+  var c = Math.cos(angle);
+  var s = Math.sin(angle);
+
+  var rotated = mult(vec2(this.position), mat2( c, s,      // Rotate
+                                               -s, c));
+  // Draw an X where the ball is to debug it
+  debug.drawLine(add(rotated, vec2(-BALL_RADIUS, -BALL_RADIUS)), add(rotated, vec2(BALL_RADIUS, BALL_RADIUS)));
+  debug.drawLine(add(rotated, vec2(-BALL_RADIUS, BALL_RADIUS)), add(rotated, vec2(BALL_RADIUS, -BALL_RADIUS)));
+
+  // NOTE: We don't actually need to project here. We do so anyway for clarity.
+  var projected = mult(vec2(this.position), mult(mat2(1.0, 0.0,   // Project
+                                                      0.0, 0.0),
+                                                 mat2( c, s,      // Rotate
+                                                      -s, c)));
+
+  // Return the projection our circle, leveraging the fact that the edge of our
+  // circle is at most one ball radius away from the center point.
+  return vec2(projected[0] - BALL_RADIUS, projected[0] + BALL_RADIUS);
 }
 
 //------------------------------------------------------------
@@ -1025,12 +1041,7 @@ var BilliardTable = function(gamemode, position, orientation) {
 
   // TODO: Draw some lines for debugging cushion collision
   for (var i = 0; i < CUSHIONS.length; ++i) {
-    for (var j = 0; j < CUSHIONS[i].points.length; ++j) {
-      debug.drawLine(
-          vec3(CUSHIONS[i].points[j][0], CUSHIONS[i].points[j][1], BALL_RADIUS+0.005),
-          vec3(CUSHIONS[i].points[(j+1)%CUSHIONS[i].points.length][0], CUSHIONS[i].points[(j+1)%CUSHIONS[i].points.length][1], BALL_RADIUS+0.005));
-
-    }
+    CUSHIONS[i].drawDebug();
   }
 }
 BilliardTable.prototype = Object.create(MeshObject.prototype);
@@ -1178,14 +1189,22 @@ BilliardTable.prototype.tickSimulation = function(dt) {
     }
   }
 
-  // Determine ball-wall collisions
+  // Determine ball-wall collisions by first considering the outlier balls in a
+  // "broad-phase" before testing for collisions with the actual cushions
   // Consider westmost balls
   for (var i = 0; i < this.xBalls.length; ++i) {
     if (this.xBalls[i].position[0] < -(TABLE_LENGTH/2 - BALL_RADIUS)) {
-      // Get the ball out of the wall
-      this.xBalls[i].position[0] = -(TABLE_LENGTH/2 - BALL_RADIUS);  // TODO: Recursively correct collision moves
-      // Compute the reflection for the velocity
-      this.xBalls[i].velocity = reflection(this.xBalls[i].velocity, vec3(1.0, 0.0, 0.0));
+      // This ball is beyond the western wall; look for cushion collisions
+      var collisionNormal = this.findCushionCollisions(this.xBalls[i], WESTERN_CUSHIONS);
+      if (collisionNormal) {
+        window.alert("We got the collision normal: " + collisionNormal);
+        // Compute the reflection for the velocity
+        window.alert("Current ball velocity :" + this.xBalls[i].velocity);
+        this.xBalls[i].velocity = reflection(this.xBalls[i].velocity, vec3(collisionNormal, 0.0));
+        window.alert("Computed reflection velocity: " + this.balls[i].velocity);
+        // Get the ball out of the wall
+        this.xBalls[i].position = add(this.xBalls[i].position, scale(MAX_DT, this.xBalls[i].velocity));
+      }
     } else break;
   }
   // Consider eastmost balls
@@ -1217,6 +1236,68 @@ BilliardTable.prototype.tickSimulation = function(dt) {
   }
 
   // TODO: Determine ball-pocket collisions
+}
+BilliardTable.prototype.findCushionCollisions = function(ball, cushions) {
+  var collidedEdges = false;
+  for (var i = 0; i < cushions.length; ++i) {
+    collidedEdges = cushions[i].checkCollision(ball);
+    if (collidedEdges) {
+      break;  // NOTE: We do not consider collisions on multiple cushions
+    }
+  }
+  if (!collidedEdges) {
+    return false;
+  }
+  if (collidedEdges.length > 1) {
+    window.alert("Oooh, the ball has collidied with " + collidedEdges.length + " edges. This might be tricky.");
+    // The ball has collided with a corner; we need to interpolate the
+    // normals of the two edges
+    var collidedEdgeLengths = [];
+    var collidedEdgeLengthsSum = 0.0;
+    for (var i = 0; i < collidedEdges.length; ++i) {
+      // Find the intersection of the edge line with the ball circle to
+      // determine the collided edge length
+      window.alert("Considering Edge [" + i + "]");
+      window.alert("We're about to intersect an edge line and the ball circle...");
+      var collidedEdgeSegment = lineCircleIntersection(collidedEdges[i], vec2(ball.position), BALL_RADIUS);
+      if (typeof collidedEdgeSegment == 'undefined') {
+        window.alert("Ball does not actually intersect edge [" + i + "] ");
+        collidedEdgeLengths.push(0.0);
+        continue;
+      } else if (!Array.isArray(collidedEdgeSegment)) {
+        // The edge collision must be grazing, or maybe we made a mistake
+        collidedEdgeLengths.push(0.0);
+        window.alert("Edge [" + i + "] grazes the wall at " + collidedEdgeSegment)
+        continue;
+      }
+      window.alert("Edge [" + i + "] intersects the wall at line segment(" + collidedEdgeSegment[0] + "), (" + collidedEdgeSegment[1] + ")");
+      var collidedEdgeLength = length(collidedEdgeSegment);
+      collidedEdgeLengths.push(collidedEdgeLength);
+      collidedEdgeLengthsSum =+ collidedEdgeLength;
+    }
+    window.alert("collidedEdgeLengths: " + collidedEdgeLengths);
+    if (collidedEdgeLengthsSum == 0.0) {
+      // We didn't collide with any edges after all
+      return false;
+    }
+    // Adjust the edge lengths so that they sum to one
+    collidedEdgeLengths = scale(1/collidedEdgeLengthsSum, collidedEdgeLengths);
+    window.alert("collidedEdgeLengths after scaling: " + collidedEdgeLengths);
+    // Compute the interpolated normal based on these edge lengths
+    var collisionNormal = vec2(0.0, 0.0);
+    for (var i = 0; i < collidedEdges.length; ++i) {
+      window.alert("normalize(cross(vec3(subtract(collidedEdges[i][1], collidedEdges[i][0])), vec3(0.0, 0.0, 1.0)).slice(0,2)): " + normalize(cross(vec3(subtract(collidedEdges[i][1], collidedEdges[i][0])), vec3(0.0, 0.0, 1.0)).slice(0,2)));
+      collisionNormal = add(collisionNormal, scale(collidedEdgeLengths[i], normalize(cross(vec3(subtract(collidedEdges[i][1], collidedEdges[i][0])), vec3(0.0, 0.0, 1.0)).slice(0,2))));
+    }
+    collisionNormal = normalize(collisionNormal);
+    window.alert("computed collision normal: " + collisionNormal);
+    return collisionNormal;
+  } else if (collidedEdges.length == 1) {
+    // Only one edge to consider; simply return its normal
+    var collisionNormal = normalize(cross(vec3(subtract(collidedEdges[0][1], collidedEdges[0][0])), vec3(0.0, 0.0, 1.0)).slice(0,2));
+    return collisionNormal;
+  }
+  return false;  // This should never be reached
 }
 BilliardTable.prototype.tickGameLogic = function(dt) {
   // TODO: Choose cameras that are most appropriate/interesting by using the game state and Camera.isInView()
@@ -1892,6 +1973,10 @@ function quatToMatrix(q) {
 }
 
 function reflection(v, n) {
+  if (dot(v,n) > 0) {
+    // Don't reflect if the vector and normal are already in the same direction
+    return v;
+  }
   return subtract(v, scale(2*dot(v,n),n));
 }
 
@@ -1907,29 +1992,97 @@ function collisionDisplacement(p, q, r) {
 }
 
 //------------------------------------------------------------
-// Prototype for polygons (for use with SAT algorithm)
+// Prototype for polygons (for use with the Separating Axis
+// Theorem algorithm)
+// See: <https://en.wikipedia.org/wiki/Hyperplane_separation_theorem#Use_in_collision_detection>
 //------------------------------------------------------------
 
-// TODO: Implement algorithm for Separating Axis Theorem collision detection
 var Polygon = function(points) {
   this.points = points.slice();
-  for (var i = 0; i < this.points.length; ++i) {
-    console.log("Polygon points " + printVector(this.points[i]));
-  }
 }
 Polygon.prototype.checkCollision = function(other) {
-  // Iterate through all of our faces
-  for (var i = 0; i < this.points; ++i) {
+  // Iterate through all of our faces in order to try to find a separating axis
+  // between these two objects
+  var collision = true;
+  var collidedEdges = [];
+  for (var i = 0; i < this.points.length; ++i) {
     var a = this.points[i];
-    var b = this.points[(i+1)%this.points];
-    // TODO: Project all of the points (for both shapes) onto the normal for
+    var b = this.points[(i+1)%this.points.length];
+    // Project all of the points (for both shapes) onto the normal for
     // this face to get the end points
-    abPerp = normalize(vec2(a, -a^2/b));
-    selfProject = this.project(abPerp);
-    otherProject = other.project(abPerp);
+    var abPerp = normalize(cross(vec3(subtract(b, a)), vec3(0.0, 0.0, 1.0)).slice(0,2));
+    console.log("abPerp: " + printVector(abPerp));
+    // Draw abPerp for debugging
+    var midpoint = add(scale(0.5, a), scale(0.5, b));
+    debug.drawLine(vec3(midpoint[0], midpoint[1], BALL_RADIUS+0.005),
+              add(vec3(midpoint[0], midpoint[1], BALL_RADIUS+0.005), vec3(abPerp[0], abPerp[1], 0.0)));
+    var selfProject = this.project(abPerp);  // TODO: I can cache this result for the cushions
+    var otherProject = other.project(abPerp);
     console.log("selfProject: " + printVector(selfProject));
     console.log("otherProject: " + printVector(otherProject));
+    // TODO: Examine the projections to see if we found a separating axis
+    if (selfProject[1] < otherProject[0]) {
+      // We found a separating axis; the objects do not collide
+      collision = false;
+      break;
+    } else if (otherProject[1] < selfProject[0]) {
+      // We found a separating axis; the objects do not collide
+      collision = false;
+      break;
+    }
+    // Now we must determine which edges are actually collided with
+    // NOTE: The edge we are considering is always selfProject[1], because the
+    // normal is rotated to point in the positive X direction and our normals
+    // should always point outwards (as long as our polygons are wound
+    // properly).
+    if ((otherProject[0] < selfProject[1]) && (otherProject[1] > selfProject[1])) {
+      // Assuming that we do not find a separating axis, this edge must collide
+      // with the object
+      collidedEdges.push([a, b]);
+    }
   }
+  if (!collision) {
+    return false;
+  }
+  // We could not find any separating axis, so the objects must collide
+  return collidedEdges;
+}
+var once = false;  // XXX
+Polygon.prototype.project = function(normal) {
+  // TODO: Project all of our points onto the given normal and return the
+  // resulting line (in one-dimensional space)
+
+  // TODO: Rotate our points so that the line corresponds with the X-axis. We
+  // could use dot products to project our points, but we want them to align
+  // with an axis for easy output.
+  var angle = Math.atan2(normal[1], normal[0]);
+  var c = Math.cos(angle);
+  var s = Math.sin(angle);
+  var rotated = this.mult(mat2( c, s,
+                               -s, c));
+  if (!once) {
+    rotated.drawDebug();
+    once = true;
+  }
+  // NOTE: We don't actually need to project here. We do so anyway for clarity.
+  var projected = this.mult(mult(mat2(1.0, 0.0,  // Project
+                                      0.0, 0.0),
+                                 mat2( c, s,     // Rotate 
+                                      -s, c)));
+
+  var result = vec2();
+  // Find the min and max points of the projection
+  result[0] = projected.points[0][0];
+  result[1] = projected.points[0][0];
+  for (var i = 1; i < projected.points.length; ++i) {
+    if (projected.points[i][0] < result[0]) {
+      result[0] = projected.points[i][0];  // New minimum found
+    } else if (projected.points[i][0] > result[1]) {
+      result[1] = projected.points[i][0];  // New maximum found
+    }
+  }
+
+  return result;
 }
 Polygon.prototype.mult = function(matrix) {
   // Apply a matrix transformation to our points and return the resulting polygon
@@ -1937,51 +2090,76 @@ Polygon.prototype.mult = function(matrix) {
   for (var i = 0; i < this.points.length; ++i) {
     transformedPoints.push(mult(this.points[i], matrix));
   }
+  if (det(matrix) < 0.0) {
+    // FIXME
+    window.alert("The determinant of this matrix is negative! The winding for this polygon must be corrected!");
+  }
   return new Polygon(transformedPoints);
+}
+Polygon.prototype.drawDebug = function() {
+  // Draw the polygon hovering over the billiard table (for debugging only)
+    for (var i = 0; i < this.points.length; ++i) {
+      debug.drawLine(
+          vec3(this.points[i][0], this.points[i][1], BALL_RADIUS+0.005),
+          vec3(this.points[(i+1)%this.points.length][0], this.points[(i+1)%this.points.length][1], BALL_RADIUS+0.005));
+    }
 }
 var Circle = function(point, radius) {
 }
 
 // Table pocket/cushin positions for collision detection (values from the model)
 var CUSHIONS = [];
-var FRONT_RIGHT_CUSHION_LEFT_BACK = vec2(5.71499E-2, -64.21501E-2);
-var FRONT_RIGHT_CUSHION_LEFT_CORNER = vec2(7.45926E-2, -58.50002E-2);
-var FRONT_RIGHT_CUSHION_RIGHT_CORNER = vec2(1.08992, -58.50002E-2);
-var FRONT_RIGHT_CUSHION_RIGHT_BACK = vec2(1.14556, -64.0191E-2);
-var FRONT_RIGHT_CUSHION = new Polygon( [ FRONT_RIGHT_CUSHION_LEFT_BACK,
-                                         FRONT_RIGHT_CUSHION_LEFT_CORNER,
-                                         FRONT_RIGHT_CUSHION_RIGHT_CORNER,
-                                         FRONT_RIGHT_CUSHION_RIGHT_BACK ] );
-CUSHIONS.push(FRONT_RIGHT_CUSHION);
+var NORTHERN_CUSHIONS = [];
+var SOUTHERN_CUSHIONS = [];
+var EASTERN_CUSHIONS = [];
+var WESTERN_CUSHIONS = [];
+var TEST_CUSHION = new Polygon( [ vec2(-2.5, 0.0), vec2(-2.0, -0.5), vec2(-1.5, 0.0), vec2(-2.0, 0.5) ] );
+CUSHIONS.push(TEST_CUSHION);
+WESTERN_CUSHIONS.push(TEST_CUSHION);
+var SOUTHEAST_CUSHION_LEFT_BACK = vec2(5.71499E-2, -64.21501E-2);
+var SOUTHEAST_CUSHION_LEFT_CORNER = vec2(7.45926E-2, -58.50002E-2);
+var SOUTHEAST_CUSHION_RIGHT_CORNER = vec2(1.08992, -58.50002E-2);
+var SOUTHEAST_CUSHION_RIGHT_BACK = vec2(1.14556, -64.0191E-2);
+var SOUTHEAST_CUSHION = new Polygon( [ SOUTHEAST_CUSHION_LEFT_BACK,
+                                         SOUTHEAST_CUSHION_LEFT_CORNER,
+                                         SOUTHEAST_CUSHION_RIGHT_CORNER,
+                                         SOUTHEAST_CUSHION_RIGHT_BACK ] );
+CUSHIONS.push(SOUTHEAST_CUSHION);
+SOUTHERN_CUSHIONS.push(SOUTHEAST_CUSHION);
 
 // The right cushion is mirrored about the Y-axis
-var RIGHT_CUSHION_BOTTOM_BACK = vec2(1.22638, -55.93686E-2);
-var RIGHT_CUSHION_BOTTOM_CORNER = vec2(1.17074, -50.41774E-2);
-var RIGHT_CUSHION_TOP_CORNER = mult(RIGHT_CUSHION_BOTTOM_CORNER,
+var EAST_CUSHION_BOTTOM_BACK = vec2(1.22638, -55.93686E-2);
+var EAST_CUSHION_BOTTOM_CORNER = vec2(1.17074, -50.41774E-2);
+var EAST_CUSHION_TOP_CORNER = mult(EAST_CUSHION_BOTTOM_CORNER,
                                     mat2(1.0,  0.0,
                                          0.0, -1.0));
-var RIGHT_CUSHION_TOP_BACK = mult(RIGHT_CUSHION_BOTTOM_BACK,
+var EAST_CUSHION_TOP_BACK = mult(EAST_CUSHION_BOTTOM_BACK,
                                   mat2(1.0,  0.0,
                                        0.0, -1.0));
-var RIGHT_CUSHION = new Polygon( [ RIGHT_CUSHION_BOTTOM_BACK,
-                                   RIGHT_CUSHION_BOTTOM_CORNER,
-                                   RIGHT_CUSHION_TOP_CORNER,
-                                   RIGHT_CUSHION_TOP_BACK ] );
-CUSHIONS.push(RIGHT_CUSHION);
+var EAST_CUSHION = new Polygon( [ EAST_CUSHION_BOTTOM_BACK,
+                                   EAST_CUSHION_BOTTOM_CORNER,
+                                   EAST_CUSHION_TOP_CORNER,
+                                   EAST_CUSHION_TOP_BACK ] );
+CUSHIONS.push(EAST_CUSHION);
+EASTERN_CUSHIONS.push(EAST_CUSHION);
 
 // All other cushins are mirrors of the preceding cushins
-var FRONT_LEFT_CUSHION = FRONT_RIGHT_CUSHION.mult(mat2(-1.0, 0.0,
+var SOUTHWEST_CUSHION = SOUTHEAST_CUSHION.mult(mat2(-1.0, 0.0,
                                                         0.0, 1.0));
-CUSHIONS.push(FRONT_LEFT_CUSHION);
-var BACK_RIGHT_CUSHION = FRONT_RIGHT_CUSHION.mult(mat2(1.0,  0.0,
+CUSHIONS.push(SOUTHWEST_CUSHION);
+SOUTHERN_CUSHIONS.push(SOUTHWEST_CUSHION);
+var NORTHEAST_CUSHION = SOUTHEAST_CUSHION.mult(mat2(1.0,  0.0,
                                                        0.0, -1.0));
-CUSHIONS.push(BACK_RIGHT_CUSHION);
-var BACK_LEFT_CUSHION = FRONT_RIGHT_CUSHION.mult(mat2(-1.0,  0.0,
+NORTHERN_CUSHIONS.push(NORTHEAST_CUSHION);
+CUSHIONS.push(NORTHEAST_CUSHION);
+var NORTHWEST_CUSHION = SOUTHEAST_CUSHION.mult(mat2(-1.0,  0.0,
                                                        0.0, -1.0));
-CUSHIONS.push(BACK_LEFT_CUSHION);
-var LEFT_CUSHION = RIGHT_CUSHION.mult(mat2(-1.0,  0.0,
+NORTHERN_CUSHIONS.push(NORTHWEST_CUSHION);
+CUSHIONS.push(NORTHWEST_CUSHION);
+var WEST_CUSHION = EAST_CUSHION.mult(mat2(-1.0,  0.0,
                                             0.0,  1.0));
-CUSHIONS.push(LEFT_CUSHION);
+CUSHIONS.push(WEST_CUSHION);
+// WESTERN_CUSHIONS.push(WEST_CUSHION);  // XXX
 
 function linePlaneIntersection(linePoint, lineVector, planePoint, planeNormal) {
   var denominator = dot(lineVector, planeNormal);
@@ -1992,6 +2170,68 @@ function linePlaneIntersection(linePoint, lineVector, planePoint, planeNormal) {
   intersectionPoint[3] = 1.0;
 
   return intersectionPoint;
+}
+function lineCircleIntersection(line, center, radius) {
+  // Computes the part of a line that is intersecting a circle by solving the
+  // quadratic equation that arises from the equation for a circle, x^2 + y^2 =
+  // r^2, combined with the parametric equation for a line, L = P + tv.
+
+  // First, determine which points on the line are already inside the circle,
+  // and handle the case where they're both inside the circle.
+  var insidePoint;
+  var outsidePoint;
+  if (length(subtract(center, line[0])) < radius) {
+    insidePoint = line[0];
+    outsidePoint = line[1];
+  }
+  if (length(subtract(center, line[1])) < radius) {
+    if (typeof insidePoint != 'undefined') {
+      return line.slice();  // That was easy
+    }
+    insidePoint = line[1];
+    outsidePoint = line[0];
+  }
+//  window.alert("insidePoint: " + insidePoint + "  outsidePoint: " + outsidePoint);  // XXX
+
+  // Find the point(s) that intersect the circle using the quadratic equation
+  var v = normalize(subtract(line[1], line[0]));
+  var a = v[0]*v[0] + v[1]*v[1];
+  var b = 2*(line[0][0]*v[0] + line[0][1]*v[1]);
+  var c = line[0][0]*line[0][0] + line[0][1]*line[0][1] - radius*radius;
+  var discriminant = b*b - 4*a*c;
+  /*  XXX
+  window.alert("a: " + a);
+  window.alert("b: " + b);
+  window.alert("c: " + c);
+  window.alert("radius: " + radius);
+  window.alert("line[0]: " + line[0]);
+  window.alert("v: " + v);
+  */
+  window.alert("discriminant: " + discriminant);
+  if (discriminant < 0.0) {
+    return undefined;
+  } else if (discriminant == 0.0) {
+    // The line grazes the circle at a single point
+    var t_0 = (-b)/(2*a);
+    var p = add(line[0], scale(t_0, v));
+    return p;
+  }
+  var t_0 = (-b + Math.sqrt(discriminant))/(2*a);
+  var t_1 = (-b - Math.sqrt(discriminant))/(2*a);
+  var p_0 = add(line[0], scale(t_0, v));
+  var p_1 = add(line[0], scale(t_0, v));
+
+  if (typeof insidePoint == 'undefined') {
+    // Both points are outside the the circle; the line is cut in three
+    return [ p_0, p_1 ];
+  }
+
+  // The point on the circle closest to the outside point must be between the
+  // two points on our line
+  if (length(subtract(p_0, outsidePoint)) < length(subtract(p_1, outsidePoint))) {
+    return [ p_0, insidePoint ];
+  }
+  return [ p_1, insidePoint ];
 }
 
 //------------------------------------------------------------
