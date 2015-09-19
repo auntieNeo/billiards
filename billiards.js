@@ -952,7 +952,7 @@ var BilliardTable = function(gamemode, position, orientation) {
       // FIXME: The cue ball should be placed by the player
       this.balls.push(new BilliardBall(0, vec3((-3/8) * TABLE_LENGTH, 0.0, BALL_RADIUS)));
       for (var i = 1; i < this.numBalls; ++i) {
-        // Position the balls in a diamond rack
+        // Position the balls in a triangle rack
         this.balls.push(new BilliardBall(i, vec3(TRIANGLE_RACK[i-1][0], TRIANGLE_RACK[i-1][1], BALL_RADIUS)));
       }
       break;
@@ -1279,6 +1279,39 @@ BilliardTable.prototype.tickSimulation = function(dt) {
   var southwestPocketNeighborhood = setUnion(southPocketNeighborhood, westPocketNeighborhood);
   var northeastPocketNeighborhood = setUnion(northPocketNeighborhood, eastPocketNeighborhood);
   var northwestPocketNeighborhood = setUnion(northPocketNeighborhood, westPocketNeighborhood);
+  var billiardTable = this;
+  // Check for collisions in each pocket
+  southeastPocketNeighborhood.forEach(function(ball) {
+    if (length(subtract(SOUTHEAST_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
+      window.alert("Pocketed ball in southeast pocket: " + ball);
+    }
+  });
+  southwestPocketNeighborhood.forEach(function(ball) {
+    if (length(subtract(SOUTHWEST_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
+      window.alert("Pocketed ball in southwest pocket: " + ball);
+    }
+  });
+  northeastPocketNeighborhood.forEach(function(ball) {
+    if (length(subtract(NORTHEAST_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
+      window.alert("Pocketed ball in northeast pocket: " + ball);
+    }
+  });
+  northwestPocketNeighborhood.forEach(function(ball) {
+    if (length(subtract(NORTHWEST_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
+      window.alert("Pocketed ball in northwest pocket: " + ball);
+    }
+  });
+  southPocketNeighborhood.forEach(function(ball) {
+    if (length(subtract(SOUTH_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
+      window.alert("Pocketed ball in south pocket: " + ball);
+    }
+  });
+  northPocketNeighborhood.forEach(function(ball) {
+    if (length(subtract(NORTH_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
+      window.alert("Pocketed ball in north pocket: " + ball);
+    }
+  });
+
   var msg = "Balls in southeast pocket neighborhood: ";
   var foundSome = false;
   southeastPocketNeighborhood.forEach(function(ball) {
@@ -1305,7 +1338,7 @@ BilliardTable.prototype.tickSimulation = function(dt) {
   });
   msg += "\n";
   if (foundSome) {
-    window.alert(msg);
+//    window.alert(msg);
   }
 }
 BilliardTable.prototype.handleCushionCollisions = function(ball, cushions) {
