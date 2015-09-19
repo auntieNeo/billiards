@@ -1270,7 +1270,7 @@ BilliardTable.prototype.handleCushionCollisions = function(ball, cushions) {
         var intersection = lineCircleIntersection(collidedEdges[i], vec2(ball.position), BALL_RADIUS);
         if (typeof intersection != 'undefined') {
           // We found an interesting edge collision close to the corner! The
-          // Separating Axis Theorem algorithm almost tricked us!
+          // algorithm was nearly tricked!
           this.handleEdgeCollision(ball, collidedEdges[i]);
           alert("We found an interesting edge collision close to the corner!");
           return;
@@ -1278,18 +1278,46 @@ BilliardTable.prototype.handleCushionCollisions = function(ball, cushions) {
       }
       return;  // Not quite colliding with the corner
     }
-    console.log("We are colliding with corner: " + corner);
+    window.alert("We are colliding with corner: " + corner);
 
-    // We treat the corner as a peg with zero width. It is similar to elastic
-    // collisions between two balls.
-    var collisionNormal = normalize(subtract(vec2(ball.position), corner));
-    console.log("We got the collision normal: " + collisionNormal);
-    // Compute the reflection for the velocity
-    console.log("Current ball velocity :" + ball.velocity);
-    ball.velocity = reflection(ball.velocity, vec3(collisionNormal, 0.0));
-    console.log("Computed reflection velocity: " + ball.velocity);
-    // Get the ball out of the corner
-    ball.position = add(ball.position, vec3(scale(BALL_RADIUS-ballCenterToCorner, normalize(subtract(vec2(ball.position), corner)))));
+    // The ball has collided with a corner; we need to interpolate the normals
+    // of the two edges, weighted by how much of each edge is intersecting the
+    // ball's circle
+    var collidedEdgeWeights = [];
+    var collidedEdgeLengthsSum = 0.0;
+    for (var i = 0; i < collidedEdges.length; ++i) {
+      // Find the intersection of the edge line with the ball circle to
+      // determine the collided length (which will determine the weight)
+      var intersectedEdgeSegment = lineCircleIntersection(collidedEdges[i], vec2(ball.position), BALL_RADIUS);
+      if (!Array.isArray(intersectedEdgeSegment)) {
+        // This shouldn't really happen; maybe we have a grazing corner case
+        window.alert("This shouldn't happen!");
+        collidedEdgeWeights.push(0.0);
+        continue;
+      }
+      var intersectionLength = length(subtract(intersectedEdgeSegment[1], intersectedEdgeSegment[0]));
+      window.alert("intersectionLength: " + intersectionLength);
+      collidedEdgeWeights.push(intersectionLength);
+      collidedEdgeLengthsSum += intersectionLength;
+    }
+    if (collidedEdgeLengthsSum == 0.0) {
+      // None of the edges intersected; we don't have a collision
+      return;
+    }
+    // Adjust the weights so that they sum to one
+    collidedEdgeWeights = scale(1/collidedEdgeLengthsSum, collidedEdgeWeights);
+    window.alert("Edge weights " + collidedEdgeWeights);
+    // Combine the edge normals by their weights
+    var collisionNormal = vec2(0.0, 0.0);
+    for (var i = 0; i < collidedEdges.length; ++i) {
+      var edgeNormal = normalize(vec2(cross(vec3(subtract(collidedEdges[i][1], collidedEdges[i][0])), vec3(0.0, 0.0, 1.0))));
+      window.alert("Edge[" + i + "] normal:" + edgeNormal);
+      collisionNormal = add(collisionNormal, scale(collidedEdgeWeights[i], edgeNormal));
+    }
+    collisionNormal = normalize(collisionNormal);
+    window.alert("Collision normal:" + collisionNormal);
+    this.handleCornerCollision(ball, corner, collisionNormal);
+    return;
   } else {
     msg = "Fishy edges: \n";
     for (var i = 0; i < collidedEdges.length; ++i) {
@@ -1314,6 +1342,15 @@ BilliardTable.prototype.handleEdgeCollision = function(ball, edge) {
   // how far the ball has moved in the last dt, but this is good enough
   // good enough
   ball.position = add(ball.position, scale(MAX_DT, ball.velocity));
+}
+BilliardTable.prototype.handleCornerCollision = function(ball, corner, collisionNormal) {
+  // Compute the reflection for the velocity
+  window.alert("Current ball velocity :" + ball.velocity);
+  ball.velocity = reflection(ball.velocity, vec3(collisionNormal, 0.0));
+  window.alert("Computed reflection velocity: " + ball.velocity);
+  // Get the ball out of the corner
+  var cornerToBallCenter = subtract(vec2(ball.position), corner);
+//  ball.position = add(ball.position, vec3(scale(BALL_RADIUS-length(cornerToBallCenter), normalize(cornerToBallCenter))));
 }
 BilliardTable.prototype.tickGameLogic = function(dt) {
   // TODO: Choose cameras that are most appropriate/interesting by using the game state and Camera.isInView()
