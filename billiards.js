@@ -1220,6 +1220,47 @@ BilliardTable.prototype.tickSimulation = function(dt) {
   }
 
   // TODO: Determine ball-pocket collisions
+  // TODO: Find the balls in a pocket's neighborhood
+  // TODO: Scan from east to west to determine the east pocket neighborhood
+  var eastPocketNeighborhood = new Set();
+  for (var i = this.xBalls.length - 1; i >= 0; --i) {
+    if (this.xBalls[i].position[0] > SOUTHEAST_POCKET[0] - POCKET_RADIUS) {
+      eastPocketNeighborhood.push(this.xBalls[i]);
+      continue;
+    }
+    break;
+  }
+  // TODO: Scan from south to north to determine the south pocket neighborhood
+  var southPocketNeighborhood = new Set();
+  for (var i = 0; i < this.yBalls.length; ++i) {
+    if (this.yBalls[i].position[1] < SOUTHEAST_POCKET[1] + POCKET_RADIUS) {
+      southPocketNeighborhood.add(this.yBalls[i]);
+      continue;
+    }
+    break;
+  }
+
+  var setUnion = function(a, b) {
+    var result = new Set();
+    for (var item in a) {
+      if (b.has(item)) {
+        result.add(item);
+      }
+    }
+    return result;
+  }
+  // Cross-reference each pocket neighborhood (set union) to see if we have a
+  // potential collision
+  var southeastPocketNeighborhood = setUnion(southPocketNeighborhood, eastPocketNeighborhood);
+  var msg = "Balls in southeast pocket neighborhood: ";
+  var foundSome = false;
+  for (var ball in southeastPocketNeighborhood) {
+    msg += "  " + ball;
+    foundSome = true;
+  }
+  if (foundSome) {
+    window.alert(msg);
+  }
 }
 BilliardTable.prototype.handleCushionCollisions = function(ball, cushions) {
   var collidedEdges = false;
@@ -2152,22 +2193,24 @@ Polygon.prototype.drawDebug = function() {
 var Circle = function(point, radius) {
 }
 
-// Table pocket/cushin positions for collision detection (values from the model)
+// Table cushin positions for collision detection (values from the model)
 var CUSHIONS = [];
 var NORTHERN_CUSHIONS = [];
 var SOUTHERN_CUSHIONS = [];
 var EASTERN_CUSHIONS = [];
 var WESTERN_CUSHIONS = [];
 // The test cushion is very useful
+/*
 var TEST_CUSHION = new Polygon( [ vec2(-2.5, 0.0), vec2(-2.0, -0.5), vec2(-1.5, 0.0), vec2(-2.0, 0.5) ] );
 TEST_CUSHION = TEST_CUSHION.mult(mat2(1.0,  0.0,
                                       0.0, -1.0));
 CUSHIONS.push(TEST_CUSHION);
 WESTERN_CUSHIONS.push(TEST_CUSHION);
-var SOUTHEAST_CUSHION_RIGHT_BACK = vec2(1.14556, -64.0191E-2);
+*/
+var SOUTHEAST_CUSHION_RIGHT_BACK = vec2(1.3362, -83.0000E-2);
 var SOUTHEAST_CUSHION_RIGHT_CORNER = vec2(1.08992, -58.50002E-2);
 var SOUTHEAST_CUSHION_LEFT_CORNER = vec2(7.45926E-2, -58.50002E-2);
-var SOUTHEAST_CUSHION_LEFT_BACK = vec2(5.71499E-2, -64.21501E-2);
+var SOUTHEAST_CUSHION_LEFT_BACK = vec2(0.0, -83.0000E-2);
 var SOUTHEAST_CUSHION = new Polygon( [ SOUTHEAST_CUSHION_RIGHT_BACK,
                                        SOUTHEAST_CUSHION_RIGHT_CORNER,
                                        SOUTHEAST_CUSHION_LEFT_CORNER,
@@ -2176,7 +2219,7 @@ CUSHIONS.push(SOUTHEAST_CUSHION);
 SOUTHERN_CUSHIONS.push(SOUTHEAST_CUSHION);
 
 // The right cushion is mirrored about the Y-axis
-var EAST_CUSHION_BOTTOM_BACK = vec2(1.22638, -55.93686E-2);
+var EAST_CUSHION_BOTTOM_BACK = vec2(1.4365, -76.8976E-2);
 var EAST_CUSHION_BOTTOM_CORNER = vec2(1.17074, -50.41774E-2);
 var EAST_CUSHION_TOP_CORNER = mult(EAST_CUSHION_BOTTOM_CORNER,
                                     mat2(1.0,  0.0,
@@ -2207,7 +2250,27 @@ CUSHIONS.push(NORTHWEST_CUSHION);
 var WEST_CUSHION = EAST_CUSHION.mult(mat2(-1.0,  0.0,
                                            0.0,  1.0));
 CUSHIONS.push(WEST_CUSHION);
-//WESTERN_CUSHIONS.push(WEST_CUSHION);
+WESTERN_CUSHIONS.push(WEST_CUSHION);
+
+// Table pocket positions for collision detection (values from the model)
+POCKET_DIAMETER = 19.377E-2;
+POCKET_RADIUS = POCKET_DIAMETER/2;
+POCKETS = [];
+SOUTHEAST_POCKET = vec2(1.20688 ,-62.29423E-2);
+SOUTH_POCKET = vec2(0.0, -67.94704E-2);
+// The rest of the pockets are mirrored from these two pockets
+var SOUTHWEST_POCKET = mult(SOUTHEAST_POCKET,
+                            mat2(-1.0, 0.0,
+                                  0.0, 1.0));
+var NORTHEAST_POCKET = mult(SOUTHEAST_POCKET,
+                            mat2(1.0,  0.0,
+                                 0.0, -1.0));
+var NORTHWEST_POCKET = mult(SOUTHEAST_POCKET,
+                            mat2(-1.0,  0.0,
+                                  0.0, -1.0));
+var NORTH_POCKET = mult(SOUTH_POCKET,
+                        mat2(-1.0,  0.0,
+                              0.0, -1.0));
 
 function linePlaneIntersection(linePoint, lineVector, planePoint, planeNormal) {
   var denominator = dot(lineVector, planeNormal);
