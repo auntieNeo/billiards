@@ -1248,54 +1248,42 @@ BilliardTable.prototype.findCushionCollisions = function(ball, cushions) {
   if (!collidedEdges) {
     return false;
   }
-  if (collidedEdges.length > 1) {
-    window.alert("Oooh, the ball has collidied with " + collidedEdges.length + " edges. This might be tricky.");
-    // The ball has collided with a corner; we need to interpolate the
-    // normals of the two edges
-    var collidedEdgeLengths = [];
-    var collidedEdgeLengthsSum = 0.0;
-    for (var i = 0; i < collidedEdges.length; ++i) {
-      // Find the intersection of the edge line with the ball circle to
-      // determine the collided edge length
-      window.alert("Considering Edge [" + i + "]");
-      window.alert("We're about to intersect an edge line and the ball circle...");
-      var collidedEdgeSegment = lineCircleIntersection(collidedEdges[i], vec2(ball.position), BALL_RADIUS);
-      if (typeof collidedEdgeSegment == 'undefined') {
-        window.alert("Ball does not actually intersect edge [" + i + "] ");
-        collidedEdgeLengths.push(0.0);
-        continue;
-      } else if (!Array.isArray(collidedEdgeSegment)) {
-        // The edge collision must be grazing, or maybe we made a mistake
-        collidedEdgeLengths.push(0.0);
-        window.alert("Edge [" + i + "] grazes the wall at " + collidedEdgeSegment)
-        continue;
+  if (collidedEdges.length == 2) {
+    // Find the corner that we might be colliding with
+    var corner;
+    for (var i = 0; i < collidedEdges[0].length; ++i) {
+      for (var j = 0; i < collidedEdges[1].length; ++i) {
+        if ((collidedEdges[0][i][0] == collidedEdges[1][j][0]) &&
+            (collidedEdges[0][i][1] == collidedEdges[1][j][1])) {
+          corner = collidedEdges[0][i];
+        }
       }
-      window.alert("Edge [" + i + "] intersects the wall at line segment(" + collidedEdgeSegment[0] + "), (" + collidedEdgeSegment[1] + ")");
-      var collidedEdgeLength = length(collidedEdgeSegment);
-      collidedEdgeLengths.push(collidedEdgeLength);
-      collidedEdgeLengthsSum =+ collidedEdgeLength;
     }
-    window.alert("collidedEdgeLengths: " + collidedEdgeLengths);
-    if (collidedEdgeLengthsSum == 0.0) {
-      // We didn't collide with any edges after all
-      return false;
+    if (typeof corner == 'undefined') {
+      throw "Could not find a corner; there must be something fishy with the cushion polygons";
     }
-    // Adjust the edge lengths so that they sum to one
-    collidedEdgeLengths = scale(1/collidedEdgeLengthsSum, collidedEdgeLengths);
-    window.alert("collidedEdgeLengths after scaling: " + collidedEdgeLengths);
-    // Compute the interpolated normal based on these edge lengths
-    var collisionNormal = vec2(0.0, 0.0);
-    for (var i = 0; i < collidedEdges.length; ++i) {
-      window.alert("normalize(cross(vec3(subtract(collidedEdges[i][1], collidedEdges[i][0])), vec3(0.0, 0.0, 1.0)).slice(0,2)): " + normalize(cross(vec3(subtract(collidedEdges[i][1], collidedEdges[i][0])), vec3(0.0, 0.0, 1.0)).slice(0,2)));
-      collisionNormal = add(collisionNormal, scale(collidedEdgeLengths[i], normalize(cross(vec3(subtract(collidedEdges[i][1], collidedEdges[i][0])), vec3(0.0, 0.0, 1.0)).slice(0,2))));
+
+    // The ball might have collided with a corner, but the Separating Axis
+    // Theorem algorithm might have missed an axis. This is because it does not
+    // consider the normals of the "faces" on our circle. This is clear when
+    // you draw a near-corner collision on paper.
+    // Thus, we must first check if the ball is within BALL_RADIUS of the
+    // corner.
+    if (length(subtract(corner, vec2(ball.position))) >= BALL_RADIUS) {
+      return false;  // Not quite colliding with the corner
     }
-    collisionNormal = normalize(collisionNormal);
-    window.alert("computed collision normal: " + collisionNormal);
+    console.log("We are colliding with corner: " + corner);
+
+    // We treat the corner as a peg with zero width. It is similar to elastic
+    // collisions between two balls.
+    var collisionNormal = normalize(subtract(vec2(ball.position), corner));
     return collisionNormal;
   } else if (collidedEdges.length == 1) {
     // Only one edge to consider; simply return its normal
     var collisionNormal = normalize(cross(vec3(subtract(collidedEdges[0][1], collidedEdges[0][0])), vec3(0.0, 0.0, 1.0)).slice(0,2));
     return collisionNormal;
+  } else {
+    throw "We can't handle more than two edge collisions at a time";
   }
   return false;  // This should never be reached
 }
@@ -2011,15 +1999,12 @@ Polygon.prototype.checkCollision = function(other) {
     // Project all of the points (for both shapes) onto the normal for
     // this face to get the end points
     var abPerp = normalize(cross(vec3(subtract(b, a)), vec3(0.0, 0.0, 1.0)).slice(0,2));
-    console.log("abPerp: " + printVector(abPerp));
     // Draw abPerp for debugging
     var midpoint = add(scale(0.5, a), scale(0.5, b));
     debug.drawLine(vec3(midpoint[0], midpoint[1], BALL_RADIUS+0.005),
               add(vec3(midpoint[0], midpoint[1], BALL_RADIUS+0.005), vec3(abPerp[0], abPerp[1], 0.0)));
     var selfProject = this.project(abPerp);  // TODO: I can cache this result for the cushions
     var otherProject = other.project(abPerp);
-    console.log("selfProject: " + printVector(selfProject));
-    console.log("otherProject: " + printVector(otherProject));
     // TODO: Examine the projections to see if we found a separating axis
     if (selfProject[1] < otherProject[0]) {
       // We found a separating axis; the objects do not collide
