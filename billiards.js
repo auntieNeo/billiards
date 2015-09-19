@@ -4,8 +4,7 @@
 var gl;
 
 // American-style ball
-var BALL_DIAMETER = 150.15E-3;  // 57.15mm
-//var BALL_DIAMETER = 57.15E-3;  // 57.15mm
+var BALL_DIAMETER = 57.15E-3;  // 57.15mm
 var BALL_RADIUS = BALL_DIAMETER / 2;
 
 // Various billiards physics constants
@@ -66,7 +65,7 @@ var NINE_BALL_NUM_BALLS = 10;
 var STRAIGHT_POOL_NUM_BALLS = 16;
 
 // Animation constants
-var MAX_DT = 0.001; // XXX: This used to be 0.01  // Arbitrary s  // FIXME: un-marry the animation dt and the simulation dt
+var MAX_DT = 0.01; // XXX: This used to be 0.01  // Arbitrary s  // FIXME: un-marry the animation dt and the simulation dt
 var LARGE_DT = MAX_DT * 10;  // Arbitrary limit for frame drop warning
 var DETERMINISTIC_DT = true;
 
@@ -1195,49 +1194,34 @@ BilliardTable.prototype.tickSimulation = function(dt) {
   for (var i = 0; i < this.xBalls.length; ++i) {
     if (this.xBalls[i].position[0] < -(TABLE_LENGTH/2 - BALL_RADIUS)) {
       // This ball is beyond the western wall; look for cushion collisions
-      var collisionNormal = this.findCushionCollisions(this.xBalls[i], WESTERN_CUSHIONS);
-      if (collisionNormal) {
-        window.alert("We got the collision normal: " + collisionNormal);
-        // Compute the reflection for the velocity
-        window.alert("Current ball velocity :" + this.xBalls[i].velocity);
-        this.xBalls[i].velocity = reflection(this.xBalls[i].velocity, vec3(collisionNormal, 0.0));
-        window.alert("Computed reflection velocity: " + this.balls[i].velocity);
-        // Get the ball out of the wall
-        this.xBalls[i].position = add(this.xBalls[i].position, scale(MAX_DT, this.xBalls[i].velocity));
-      }
+      this.handleCushionCollisions(this.xBalls[i], WESTERN_CUSHIONS);
     } else break;
   }
   // Consider eastmost balls
   for (var i = this.xBalls.length - 1; i >= 0; --i) {
     if (this.xBalls[i].position[0] > TABLE_LENGTH/2 - BALL_RADIUS) {
-      // Get the ball out of the wall
-      this.xBalls[i].position[0] = TABLE_LENGTH/2 - BALL_RADIUS;  // TODO: Recursively correct collision moves
-      // Compute the reflection for the velocity
-      this.xBalls[i].velocity = reflection(this.xBalls[i].velocity, vec3(-1.0, 0.0, 0.0));
+      // This ball is beyond the eastern wall; look for cushion collisions
+      this.handleCushionCollisions(this.xBalls[i], EASTERN_CUSHIONS);
     } else break;
   }
   // Consider southmost balls
   for (var i = 0; i < this.yBalls.length; ++i) {
     if (this.yBalls[i].position[1] < -(TABLE_WIDTH/2 - BALL_RADIUS)) {
-      // Get the ball out of the wall
-      this.yBalls[i].position[1] = -(TABLE_WIDTH/2 - BALL_RADIUS);  // TODO: Recursively correct collision moves
-      // Compute the reflection for the velocity
-      this.yBalls[i].velocity = reflection(this.yBalls[i].velocity, vec3(0.0, 1.0, 0.0));
+      // This ball is beyond the southern wall; look for cushion collisions
+      this.handleCushionCollisions(this.yBalls[i], SOUTHERN_CUSHIONS);
     } else break;
   }
   // Consider northmost balls
   for (var i = this.xBalls.length - 1; i >= 0; --i) {
     if (this.yBalls[i].position[1] > TABLE_WIDTH/2 - BALL_RADIUS) {
-      // Get the ball out of the wall
-      this.yBalls[i].position[1] = TABLE_WIDTH/2 - BALL_RADIUS;  // TODO: Recursively correct collision moves
-      // Compute the reflection for the velocity
-      this.yBalls[i].velocity = reflection(this.yBalls[i].velocity, vec3(0.0, -1.0, 0.0));
+      // This ball is beyond the northern wall; look for cushion collisions
+      this.handleCushionCollisions(this.yBalls[i], NORTHERN_CUSHIONS);
     } else break;
   }
 
   // TODO: Determine ball-pocket collisions
 }
-BilliardTable.prototype.findCushionCollisions = function(ball, cushions) {
+BilliardTable.prototype.handleCushionCollisions = function(ball, cushions) {
   var collidedEdges = false;
   for (var i = 0; i < cushions.length; ++i) {
     collidedEdges = cushions[i].checkCollision(ball);
@@ -1246,13 +1230,16 @@ BilliardTable.prototype.findCushionCollisions = function(ball, cushions) {
     }
   }
   if (!collidedEdges) {
-    return false;
+    return;
   }
-  if (collidedEdges.length == 2) {
+  if (collidedEdges.length == 1) {
+    this.handleEdgeCollision(ball, collidedEdges[0]);
+    return;
+  } else if (collidedEdges.length == 2) {
     // Find the corner that we might be colliding with
     var corner;
     for (var i = 0; i < collidedEdges[0].length; ++i) {
-      for (var j = 0; i < collidedEdges[1].length; ++i) {
+      for (var j = 0; j < collidedEdges[1].length; ++j) {
         if ((collidedEdges[0][i][0] == collidedEdges[1][j][0]) &&
             (collidedEdges[0][i][1] == collidedEdges[1][j][1])) {
           corner = collidedEdges[0][i];
@@ -1260,6 +1247,11 @@ BilliardTable.prototype.findCushionCollisions = function(ball, cushions) {
       }
     }
     if (typeof corner == 'undefined') {
+      msg = "Fishy edges: \n";
+      for (var i = 0; i < collidedEdges.length; ++i) {
+        msg += "(" + collidedEdges[i][0] + "), (" + collidedEdges[i][1] + ")\n";
+      }
+      console.log(msg);
       throw "Could not find a corner; there must be something fishy with the cushion polygons";
     }
 
@@ -1269,23 +1261,59 @@ BilliardTable.prototype.findCushionCollisions = function(ball, cushions) {
     // you draw a near-corner collision on paper.
     // Thus, we must first check if the ball is within BALL_RADIUS of the
     // corner.
-    if (length(subtract(corner, vec2(ball.position))) >= BALL_RADIUS) {
-      return false;  // Not quite colliding with the corner
+    var ballCenterToCorner = length(subtract(corner, vec2(ball.position)));
+    if (ballCenterToCorner >= BALL_RADIUS) {
+      // There is a case where the ball is only colliding with one of the edges
+      // while being close to the corner. We need to intersect each edge with
+      // the circle to see if it collides.
+      for (var i = 0; i < collidedEdges.length; ++i) {
+        var intersection = lineCircleIntersection(collidedEdges[i], vec2(ball.position), BALL_RADIUS);
+        if (typeof intersection != 'undefined') {
+          // We found an interesting edge collision close to the corner! The
+          // Separating Axis Theorem algorithm almost tricked us!
+          this.handleEdgeCollision(ball, collidedEdges[i]);
+          alert("We found an interesting edge collision close to the corner!");
+          return;
+        }
+      }
+      return;  // Not quite colliding with the corner
     }
     console.log("We are colliding with corner: " + corner);
 
     // We treat the corner as a peg with zero width. It is similar to elastic
     // collisions between two balls.
     var collisionNormal = normalize(subtract(vec2(ball.position), corner));
-    return collisionNormal;
-  } else if (collidedEdges.length == 1) {
-    // Only one edge to consider; simply return its normal
-    var collisionNormal = normalize(cross(vec3(subtract(collidedEdges[0][1], collidedEdges[0][0])), vec3(0.0, 0.0, 1.0)).slice(0,2));
-    return collisionNormal;
+    console.log("We got the collision normal: " + collisionNormal);
+    // Compute the reflection for the velocity
+    console.log("Current ball velocity :" + ball.velocity);
+    ball.velocity = reflection(ball.velocity, vec3(collisionNormal, 0.0));
+    console.log("Computed reflection velocity: " + ball.velocity);
+    // Get the ball out of the corner
+    ball.position = add(ball.position, vec3(scale(BALL_RADIUS-ballCenterToCorner, normalize(subtract(vec2(ball.position), corner)))));
   } else {
+    msg = "Fishy edges: \n";
+    for (var i = 0; i < collidedEdges.length; ++i) {
+      msg += "(" + collidedEdges[i][0] + "), (" + collidedEdges[i][1] + ")\n";
+    }
+    console.log(msg);
     throw "We can't handle more than two edge collisions at a time";
   }
-  return false;  // This should never be reached
+}
+BilliardTable.prototype.handleEdgeCollision = function(ball, edge) {
+  // The ball collided with an edge. We just need to reflect the velocity and
+  // get it out of the wall.
+  // Only one edge to consider; the normal is perpendicular to the wall
+  var collisionNormal = normalize(cross(vec3(subtract(edge[1], edge[0])), vec3(0.0, 0.0, 1.0)).slice(0,2));
+  console.log("We got the collision normal for the wall: " + collisionNormal);
+  // Compute the reflection for the velocity
+  console.log("Current ball velocity :" + ball.velocity);
+  ball.velocity = reflection(ball.velocity, vec3(collisionNormal, 0.0));
+  console.log("Computed reflection velocity: " + ball.velocity);
+  // Get the ball out of the wall
+  // NOTE: We could probably try harder at this approximation and account for
+  // how far the ball has moved in the last dt, but this is good enough
+  // good enough
+  ball.position = add(ball.position, scale(MAX_DT, ball.velocity));
 }
 BilliardTable.prototype.tickGameLogic = function(dt) {
   // TODO: Choose cameras that are most appropriate/interesting by using the game state and Camera.isInView()
@@ -2032,23 +2060,17 @@ Polygon.prototype.checkCollision = function(other) {
   // We could not find any separating axis, so the objects must collide
   return collidedEdges;
 }
-var once = false;  // XXX
 Polygon.prototype.project = function(normal) {
-  // TODO: Project all of our points onto the given normal and return the
-  // resulting line (in one-dimensional space)
+  // roject all of our points onto the given normal and return the resulting
+  // line (in one-dimensional space)
 
-  // TODO: Rotate our points so that the line corresponds with the X-axis. We
-  // could use dot products to project our points, but we want them to align
-  // with an axis for easy output.
+  // Rotate our points so that the line corresponds with the X-axis. We could
+  // use dot products to project our points, but we want them to align with an
+  // axis for easy output.
   var angle = Math.atan2(normal[1], normal[0]);
   var c = Math.cos(angle);
   var s = Math.sin(angle);
-  var rotated = this.mult(mat2( c, s,
-                               -s, c));
-  if (!once) {
-    rotated.drawDebug();
-    once = true;
-  }
+
   // NOTE: We don't actually need to project here. We do so anyway for clarity.
   var projected = this.mult(mult(mat2(1.0, 0.0,  // Project
                                       0.0, 0.0),
@@ -2076,8 +2098,9 @@ Polygon.prototype.mult = function(matrix) {
     transformedPoints.push(mult(this.points[i], matrix));
   }
   if (det(matrix) < 0.0) {
-    // FIXME
-    window.alert("The determinant of this matrix is negative! The winding for this polygon must be corrected!");
+    // The transformation changed the polygon edge winding; we must reverse the
+    // array to correct it
+    transformedPoints = transformedPoints.reverse();
   }
   return new Polygon(transformedPoints);
 }
@@ -2098,17 +2121,20 @@ var NORTHERN_CUSHIONS = [];
 var SOUTHERN_CUSHIONS = [];
 var EASTERN_CUSHIONS = [];
 var WESTERN_CUSHIONS = [];
+// The test cushion is very useful
 var TEST_CUSHION = new Polygon( [ vec2(-2.5, 0.0), vec2(-2.0, -0.5), vec2(-1.5, 0.0), vec2(-2.0, 0.5) ] );
+TEST_CUSHION = TEST_CUSHION.mult(mat2(1.0,  0.0,
+                                      0.0, -1.0));
 CUSHIONS.push(TEST_CUSHION);
 WESTERN_CUSHIONS.push(TEST_CUSHION);
-var SOUTHEAST_CUSHION_LEFT_BACK = vec2(5.71499E-2, -64.21501E-2);
-var SOUTHEAST_CUSHION_LEFT_CORNER = vec2(7.45926E-2, -58.50002E-2);
-var SOUTHEAST_CUSHION_RIGHT_CORNER = vec2(1.08992, -58.50002E-2);
 var SOUTHEAST_CUSHION_RIGHT_BACK = vec2(1.14556, -64.0191E-2);
-var SOUTHEAST_CUSHION = new Polygon( [ SOUTHEAST_CUSHION_LEFT_BACK,
-                                         SOUTHEAST_CUSHION_LEFT_CORNER,
-                                         SOUTHEAST_CUSHION_RIGHT_CORNER,
-                                         SOUTHEAST_CUSHION_RIGHT_BACK ] );
+var SOUTHEAST_CUSHION_RIGHT_CORNER = vec2(1.08992, -58.50002E-2);
+var SOUTHEAST_CUSHION_LEFT_CORNER = vec2(7.45926E-2, -58.50002E-2);
+var SOUTHEAST_CUSHION_LEFT_BACK = vec2(5.71499E-2, -64.21501E-2);
+var SOUTHEAST_CUSHION = new Polygon( [ SOUTHEAST_CUSHION_RIGHT_BACK,
+                                       SOUTHEAST_CUSHION_RIGHT_CORNER,
+                                       SOUTHEAST_CUSHION_LEFT_CORNER,
+                                       SOUTHEAST_CUSHION_LEFT_BACK ] );
 CUSHIONS.push(SOUTHEAST_CUSHION);
 SOUTHERN_CUSHIONS.push(SOUTHEAST_CUSHION);
 
@@ -2121,30 +2147,30 @@ var EAST_CUSHION_TOP_CORNER = mult(EAST_CUSHION_BOTTOM_CORNER,
 var EAST_CUSHION_TOP_BACK = mult(EAST_CUSHION_BOTTOM_BACK,
                                   mat2(1.0,  0.0,
                                        0.0, -1.0));
-var EAST_CUSHION = new Polygon( [ EAST_CUSHION_BOTTOM_BACK,
-                                   EAST_CUSHION_BOTTOM_CORNER,
-                                   EAST_CUSHION_TOP_CORNER,
-                                   EAST_CUSHION_TOP_BACK ] );
+var EAST_CUSHION = new Polygon( [ EAST_CUSHION_TOP_BACK,
+                                  EAST_CUSHION_TOP_CORNER,
+                                  EAST_CUSHION_BOTTOM_CORNER,
+                                  EAST_CUSHION_BOTTOM_BACK ] );
 CUSHIONS.push(EAST_CUSHION);
 EASTERN_CUSHIONS.push(EAST_CUSHION);
 
 // All other cushins are mirrors of the preceding cushins
 var SOUTHWEST_CUSHION = SOUTHEAST_CUSHION.mult(mat2(-1.0, 0.0,
-                                                        0.0, 1.0));
+                                                     0.0, 1.0));
 CUSHIONS.push(SOUTHWEST_CUSHION);
 SOUTHERN_CUSHIONS.push(SOUTHWEST_CUSHION);
 var NORTHEAST_CUSHION = SOUTHEAST_CUSHION.mult(mat2(1.0,  0.0,
-                                                       0.0, -1.0));
+                                                    0.0, -1.0));
 NORTHERN_CUSHIONS.push(NORTHEAST_CUSHION);
 CUSHIONS.push(NORTHEAST_CUSHION);
 var NORTHWEST_CUSHION = SOUTHEAST_CUSHION.mult(mat2(-1.0,  0.0,
-                                                       0.0, -1.0));
+                                                     0.0, -1.0));
 NORTHERN_CUSHIONS.push(NORTHWEST_CUSHION);
 CUSHIONS.push(NORTHWEST_CUSHION);
 var WEST_CUSHION = EAST_CUSHION.mult(mat2(-1.0,  0.0,
-                                            0.0,  1.0));
+                                           0.0,  1.0));
 CUSHIONS.push(WEST_CUSHION);
-// WESTERN_CUSHIONS.push(WEST_CUSHION);  // XXX
+//WESTERN_CUSHIONS.push(WEST_CUSHION);
 
 function linePlaneIntersection(linePoint, lineVector, planePoint, planeNormal) {
   var denominator = dot(lineVector, planeNormal);
@@ -2156,11 +2182,8 @@ function linePlaneIntersection(linePoint, lineVector, planePoint, planeNormal) {
 
   return intersectionPoint;
 }
-function lineCircleIntersection(line, center, radius) {
-  // Computes the part of a line that is intersecting a circle by solving the
-  // quadratic equation that arises from the equation for a circle, x^2 + y^2 =
-  // r^2, combined with the parametric equation for a line, L = P + tv.
-
+function lineCircleIntersection(line, center, radius)
+{
   // First, determine which points on the line are already inside the circle,
   // and handle the case where they're both inside the circle.
   var insidePoint;
@@ -2171,53 +2194,61 @@ function lineCircleIntersection(line, center, radius) {
   }
   if (length(subtract(center, line[1])) < radius) {
     if (typeof insidePoint != 'undefined') {
-      return line.slice();  // That was easy
+      window.alert("The line is contained in the circle!");
+      return line.slice();  // That was easy; the line is entirely within the circle
     }
     insidePoint = line[1];
     outsidePoint = line[0];
   }
-//  window.alert("insidePoint: " + insidePoint + "  outsidePoint: " + outsidePoint);  // XXX
+  var bothOutside = typeof insidePoint == 'undefined';
 
-  // Find the point(s) that intersect the circle using the quadratic equation
   var v = normalize(subtract(line[1], line[0]));
-  var a = v[0]*v[0] + v[1]*v[1];
-  var b = 2*(line[0][0]*v[0] + line[0][1]*v[1]);
-  var c = line[0][0]*line[0][0] + line[0][1]*line[0][1] - radius*radius;
+  var v_x = v[0];
+  var v_y = v[1];
+  var s = line[0];
+  var s_x = s[0];
+  var s_y = s[1];
+  var r = radius;
+  var c_x = center[0];
+  var c_y = center[1];
+
+  // We first find the roots for the ray intersecting the circle by solving the
+  // quadratic equation that arises from the circle-ray intersection problem.
+  var a = v_x*v_x + v_y*v_y;
+  var b = 2 * (s_x*v_x + s_y*v_y - c_x*v_x - c_y*v_y);
+  var c = s_x*s_x + s_y*s_y - 2*(c_x*s_x + c_y*s_y) + c_x*c_x + c_y*c_y - r*r;
   var discriminant = b*b - 4*a*c;
-  /*  XXX
-  window.alert("a: " + a);
-  window.alert("b: " + b);
-  window.alert("c: " + c);
-  window.alert("radius: " + radius);
-  window.alert("line[0]: " + line[0]);
-  window.alert("v: " + v);
-  */
   window.alert("discriminant: " + discriminant);
   if (discriminant < 0.0) {
     return undefined;
   } else if (discriminant == 0.0) {
-    // The line grazes the circle at a single point
-    var t_0 = (-b)/(2*a);
-    var p = add(line[0], scale(t_0, v));
-    return p;
+    // TODO: Grazing hits aren't very interesting for us either...
+    return undefined;
   }
+  // The discriminant is negative, so we have two intersecting points along
+  // the array
   var t_0 = (-b + Math.sqrt(discriminant))/(2*a);
   var t_1 = (-b - Math.sqrt(discriminant))/(2*a);
-  var p_0 = add(line[0], scale(t_0, v));
-  var p_1 = add(line[0], scale(t_0, v));
 
-  if (typeof insidePoint == 'undefined') {
-    // Both points are outside the the circle; the line is cut in three
-    return [ p_0, p_1 ];
+  var p_0 = add(s, scale(t_0, v));
+  var p_1 = add(s, scale(t_1, v));
+  alert("p_0: " + p_0 + " p_1: " + p_1);
+
+  if (bothOutside) {
+    this.alert("They're both outside!");
+    return [p_0, p_1];  // The line goes in one side and out the other
   }
-
-  // The point on the circle closest to the outside point must be between the
-  // two points on our line
+  // To determine which point on the circle is between our line points,
+  // consider that such a point must be closest to the outside point on our
+  // line
   if (length(subtract(p_0, outsidePoint)) < length(subtract(p_1, outsidePoint))) {
-    return [ p_0, insidePoint ];
+    return [p_0, insidePoint];
+  } else {
+    return [p_1, insidePoint];
   }
-  return [ p_1, insidePoint ];
 }
+// Poor man's unit tests
+window.alert("lineCircleIntersection test: " + printVector(lineCircleIntersection([[-1.0, 0.0], [0.5, 0.0]], [0.5, 0.0], 0.5)));
 
 //------------------------------------------------------------
 // Prototype for tool to draw shapes for debugging graphics
