@@ -3,6 +3,8 @@
 //------------------------------------------------------------
 var gl;
 
+var ENABLE_DEBUG = false
+
 // American-style ball
 var BALL_DIAMETER = 57.15E-3;  // 57.15mm
 var BALL_RADIUS = BALL_DIAMETER / 2;
@@ -1219,13 +1221,24 @@ BilliardTable.prototype.tickSimulation = function(dt) {
     } else break;
   }
 
-  // TODO: Determine ball-pocket collisions
-  // TODO: Find the balls in a pocket's neighborhood
-  // TODO: Scan from east to west to determine the east pocket neighborhood
+  // Determine ball-pocket collisions by first examining each pocket
+  // neighborhood in broad-phase collision detection
+  // Scan from east to west to determine the east pocket neighborhood
   var eastPocketNeighborhood = new Set();
   for (var i = this.xBalls.length - 1; i >= 0; --i) {
     if (this.xBalls[i].position[0] > SOUTHEAST_POCKET[0] - POCKET_RADIUS) {
-      eastPocketNeighborhood.push(this.xBalls[i]);
+      eastPocketNeighborhood.add(this.xBalls[i].number);
+      console.log("Found ball " + this.xBalls[i].number + " in east pocket neighborhood");
+      continue;
+    }
+    break;
+  }
+  // TODO: Scan from west to east to determine the west pocket neighborhood
+  var westPocketNeighborhood = new Set();
+  for (var i = 0; i < this.xBalls.length; ++i) {
+    if (this.xBalls[i].position[0] < SOUTHWEST_POCKET[0] + POCKET_RADIUS) {
+      westPocketNeighborhood.add(this.xBalls[i].number);
+      console.log("Found ball " + this.xBalls[i].number + " in west pocket neighborhood");
       continue;
     }
     break;
@@ -1233,8 +1246,19 @@ BilliardTable.prototype.tickSimulation = function(dt) {
   // TODO: Scan from south to north to determine the south pocket neighborhood
   var southPocketNeighborhood = new Set();
   for (var i = 0; i < this.yBalls.length; ++i) {
-    if (this.yBalls[i].position[1] < SOUTHEAST_POCKET[1] + POCKET_RADIUS) {
-      southPocketNeighborhood.add(this.yBalls[i]);
+    if (this.yBalls[i].position[1] < Math.max(SOUTH_POCKET[1], SOUTHEAST_POCKET[1]) + POCKET_RADIUS) {
+      southPocketNeighborhood.add(this.yBalls[i].number);
+      console.log("Found ball " + this.yBalls[i].number + " in south pocket neighborhood");
+      continue;
+    }
+    break;
+  }
+  // TODO: Scan from north to south to determine the north pocket neighborhood
+  var northPocketNeighborhood = new Set();
+  for (var i = this.yBalls.length - 1; i >= 0; --i) {
+    if (this.yBalls[i].position[1] > Math.min(NORTH_POCKET[1], NORTHEAST_POCKET[1]) - POCKET_RADIUS) {
+      northPocketNeighborhood.add(this.yBalls[i].number);
+      console.log("Found ball " + this.yBalls[i].number + " in north pocket neighborhood");
       continue;
     }
     break;
@@ -1242,22 +1266,44 @@ BilliardTable.prototype.tickSimulation = function(dt) {
 
   var setUnion = function(a, b) {
     var result = new Set();
-    for (var item in a) {
+    a.forEach(function(item) {
       if (b.has(item)) {
         result.add(item);
       }
-    }
+    });
     return result;
   }
   // Cross-reference each pocket neighborhood (set union) to see if we have a
   // potential collision
   var southeastPocketNeighborhood = setUnion(southPocketNeighborhood, eastPocketNeighborhood);
+  var southwestPocketNeighborhood = setUnion(southPocketNeighborhood, westPocketNeighborhood);
+  var northeastPocketNeighborhood = setUnion(northPocketNeighborhood, eastPocketNeighborhood);
+  var northwestPocketNeighborhood = setUnion(northPocketNeighborhood, westPocketNeighborhood);
   var msg = "Balls in southeast pocket neighborhood: ";
   var foundSome = false;
-  for (var ball in southeastPocketNeighborhood) {
+  southeastPocketNeighborhood.forEach(function(ball) {
     msg += "  " + ball;
     foundSome = true;
-  }
+  });
+  msg += "\n";
+  msg += "Balls in southwest pocket neighborhood: ";
+  southwestPocketNeighborhood.forEach(function(ball) {
+    msg += "  " + ball;
+    foundSome = true;
+  });
+  msg += "\n";
+  msg += "Balls in northeast pocket neighborhood: ";
+  northeastPocketNeighborhood.forEach(function(ball) {
+    msg += "  " + ball;
+    foundSome = true;
+  });
+  msg += "\n";
+  msg += "Balls in northwest pocket neighborhood: ";
+  northwestPocketNeighborhood.forEach(function(ball) {
+    msg += "  " + ball;
+    foundSome = true;
+  });
+  msg += "\n";
   if (foundSome) {
     window.alert(msg);
   }
@@ -1302,28 +1348,10 @@ BilliardTable.prototype.handleCushionCollisions = function(ball, cushions) {
     // you draw a near-corner collision on paper.
     // Thus, we must first check if the ball is within BALL_RADIUS of the
     // corner.
-    var ballCenterToCorner = length(subtract(corner, vec2(ball.position)));
-    if (ballCenterToCorner >= BALL_RADIUS) {
-      // There is a case where the ball is only colliding with one of the edges
-      // while being close to the corner. We need to intersect each edge with
-      // the circle to see if it collides.
-      for (var i = 0; i < collidedEdges.length; ++i) {
-        var intersection = lineCircleIntersection(collidedEdges[i], vec2(ball.position), BALL_RADIUS);
-        if (typeof intersection != 'undefined') {
-          // We found an interesting edge collision close to the corner! The
-          // algorithm was nearly tricked!
-          this.handleEdgeCollision(ball, collidedEdges[i]);
-          alert("We found an interesting edge collision close to the corner!");
-          return;
-        }
-      }
-      return;  // Not quite colliding with the corner
-    }
-    window.alert("We are colliding with corner: " + corner);
 
-    // The ball has collided with a corner; we need to interpolate the normals
-    // of the two edges, weighted by how much of each edge is intersecting the
-    // ball's circle
+    // The ball (might have) collided with a corner; we need to interpolate the
+    // normals of the two edges, weighted by how much of each edge is
+    // intersecting the ball's circle
     var collidedEdgeWeights = [];
     var collidedEdgeLengthsSum = 0.0;
     for (var i = 0; i < collidedEdges.length; ++i) {
@@ -1331,13 +1359,13 @@ BilliardTable.prototype.handleCushionCollisions = function(ball, cushions) {
       // determine the collided length (which will determine the weight)
       var intersectedEdgeSegment = lineCircleIntersection(collidedEdges[i], vec2(ball.position), BALL_RADIUS);
       if (!Array.isArray(intersectedEdgeSegment)) {
-        // This shouldn't really happen; maybe we have a grazing corner case
-        window.alert("This shouldn't happen!");
+        // The Separating Axis Theorem algorithm can pick up two edges when
+        // only one of them is actually collided. We just weight the
+        // non-colliding edge to zero
         collidedEdgeWeights.push(0.0);
         continue;
       }
       var intersectionLength = length(subtract(intersectedEdgeSegment[1], intersectedEdgeSegment[0]));
-      window.alert("intersectionLength: " + intersectionLength);
       collidedEdgeWeights.push(intersectionLength);
       collidedEdgeLengthsSum += intersectionLength;
     }
@@ -1347,16 +1375,13 @@ BilliardTable.prototype.handleCushionCollisions = function(ball, cushions) {
     }
     // Adjust the weights so that they sum to one
     collidedEdgeWeights = scale(1/collidedEdgeLengthsSum, collidedEdgeWeights);
-    window.alert("Edge weights " + collidedEdgeWeights);
     // Combine the edge normals by their weights
     var collisionNormal = vec2(0.0, 0.0);
     for (var i = 0; i < collidedEdges.length; ++i) {
       var edgeNormal = normalize(vec2(cross(vec3(subtract(collidedEdges[i][1], collidedEdges[i][0])), vec3(0.0, 0.0, 1.0))));
-      window.alert("Edge[" + i + "] normal:" + edgeNormal);
       collisionNormal = add(collisionNormal, scale(collidedEdgeWeights[i], edgeNormal));
     }
     collisionNormal = normalize(collisionNormal);
-    window.alert("Collision normal:" + collisionNormal);
     this.handleCornerCollision(ball, corner, collisionNormal);
     return;
   } else {
@@ -1373,11 +1398,8 @@ BilliardTable.prototype.handleEdgeCollision = function(ball, edge) {
   // get it out of the wall.
   // Only one edge to consider; the normal is perpendicular to the wall
   var collisionNormal = normalize(cross(vec3(subtract(edge[1], edge[0])), vec3(0.0, 0.0, 1.0)).slice(0,2));
-  console.log("We got the collision normal for the wall: " + collisionNormal);
   // Compute the reflection for the velocity
-  console.log("Current ball velocity :" + ball.velocity);
   ball.velocity = reflection(ball.velocity, vec3(collisionNormal, 0.0));
-  console.log("Computed reflection velocity: " + ball.velocity);
   // Get the ball out of the wall
   // NOTE: We could probably try harder at this approximation and account for
   // how far the ball has moved in the last dt, but this is good enough
@@ -1386,9 +1408,7 @@ BilliardTable.prototype.handleEdgeCollision = function(ball, edge) {
 }
 BilliardTable.prototype.handleCornerCollision = function(ball, corner, collisionNormal) {
   // Compute the reflection for the velocity
-  window.alert("Current ball velocity :" + ball.velocity);
   ball.velocity = reflection(ball.velocity, vec3(collisionNormal, 0.0));
-  window.alert("Computed reflection velocity: " + ball.velocity);
   // Get the ball out of the corner
   var cornerToBallCenter = subtract(vec2(ball.position), corner);
 //  ball.position = add(ball.position, vec3(scale(BALL_RADIUS-length(cornerToBallCenter), normalize(cornerToBallCenter))));
@@ -1469,7 +1489,6 @@ BilliardTable.prototype.tickCameras = function(dt) {
           // The arrow keys control the perpective camera
           if ((this.keysDepressed.leftArrow == true) &&
               (this.keysDepressed.rightArrow == false)) {
-            window.alert("left arrow pressed");
             this.currentCamera.rotateClockwise();
           } else if (this.keysDepressed.leftArrow == false &&
                      this.keysDepressed.rightArrow == true) {
@@ -2294,7 +2313,6 @@ function lineCircleIntersection(line, center, radius)
   }
   if (length(subtract(center, line[1])) < radius) {
     if (typeof insidePoint != 'undefined') {
-      window.alert("The line is contained in the circle!");
       return line.slice();  // That was easy; the line is entirely within the circle
     }
     insidePoint = line[1];
@@ -2318,7 +2336,6 @@ function lineCircleIntersection(line, center, radius)
   var b = 2 * (s_x*v_x + s_y*v_y - c_x*v_x - c_y*v_y);
   var c = s_x*s_x + s_y*s_y - 2*(c_x*s_x + c_y*s_y) + c_x*c_x + c_y*c_y - r*r;
   var discriminant = b*b - 4*a*c;
-  window.alert("discriminant: " + discriminant);
   if (discriminant < 0.0) {
     return undefined;
   } else if (discriminant == 0.0) {
@@ -2332,10 +2349,8 @@ function lineCircleIntersection(line, center, radius)
 
   var p_0 = add(s, scale(t_0, v));
   var p_1 = add(s, scale(t_1, v));
-  alert("p_0: " + p_0 + " p_1: " + p_1);
 
   if (bothOutside) {
-    this.alert("They're both outside!");
     return [p_0, p_1];  // The line goes in one side and out the other
   }
   // To determine which point on the circle is between our line points,
@@ -2348,18 +2363,24 @@ function lineCircleIntersection(line, center, radius)
   }
 }
 // Poor man's unit tests
-window.alert("lineCircleIntersection test: " + printVector(lineCircleIntersection([[-1.0, 0.0], [0.5, 0.0]], [0.5, 0.0], 0.5)));
+// window.alert("lineCircleIntersection test: " + printVector(lineCircleIntersection([[-1.0, 0.0], [0.5, 0.0]], [0.5, 0.0], 0.5)));
 
 //------------------------------------------------------------
 // Prototype for tool to draw shapes for debugging graphics
 //------------------------------------------------------------
 var GraphicsDebug = function(shader) {
+  if (!ENABLE_DEBUG)
+    return;
   this.lines = [];
   this.linesUpdated = false;
 
   this.shaderProgram = shader;
 }
 GraphicsDebug.prototype.drawLine = function(a, b) {
+  if (!ENABLE_DEBUG)
+    return;
+  // FIXME: This should use a set to avoid slowing everything down when adding
+  // too many lines.
   this.lines.push(a);
   this.lines.push(b);
   this.linesUpdated = true;
@@ -2368,6 +2389,8 @@ GraphicsDebug.prototype.drawLine = function(a, b) {
   }
 }
 GraphicsDebug.prototype.draw = function(gl, worldView, projection) {
+  if (!ENABLE_DEBUG)
+    return;
   if (this.lines.length <= 0) {
     return;
   }
