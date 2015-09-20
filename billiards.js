@@ -26,6 +26,10 @@ var SHOT_VELOCITY_EPSILON = 0.03;  // The weakest shot that you're allowed to ma
 var MAX_SHOT_VELOCITY = 3.0;  // m/s
 var MAX_SHOT_DISTANCE = CURSOR_RADIUS_EPSILON + (BALL_RADIUS + MAX_SHOT_VELOCITY*CUE_STICK_TIME_TO_COLLISION);
 
+// Pocket physics fudge constants
+var POCKET_EDGE_MIN_FUDGE_VELOCITY = 3.0E-2;
+var POCKET_EDGE_FUDGE_ACCELERATION = GRAVITY_ACCELERATION/2;
+
 // Various billiards dimensions in meters
 /*
 // Nine-foot table
@@ -892,6 +896,7 @@ BilliardBall.prototype.putInPlay = function(position) {
   this.state = 'startInPlay';
 }
 BilliardBall.prototype.setPocket = function(pocket) {
+  this.pocket = pocket;
   this.state = 'startPocketed';
 }
 BilliardBall.prototype.tick = function(dt) {
@@ -904,9 +909,9 @@ BilliardBall.prototype.tick = function(dt) {
       this.tickPhysics(dt);
       break;
     case 'startPocketed':
-      break;
-    case 'animatePocketed':
-      // TODO: Animate the ball rolling towards the center of the pocket
+    case 'fallingInPocket':
+      this.state = 'fallingInPocket';
+      this.tickPhysics(dt);
       break;
     case 'pocketed':
       break;
@@ -915,30 +920,64 @@ BilliardBall.prototype.tick = function(dt) {
   }
 }
 BilliardBall.prototype.tickPhysics = function(dt) {
-  // Physics for balls on the table
-  this.velocity[2] = 0.0;  // Make sure the ball does not leave the billiard table surface
-  if (length(this.velocity) < BALL_VELOCITY_EPSILON) {
-    this.velocity = vec3(0.0, 0.0, 0.0);
-  } else {
-    // Account for rolling resistance, i.e. friction
-    this.velocity = add(this.velocity, scale(-dt*BALL_CLOTH_ROLLING_RESISTANCE_ACCELERATION, normalize(this.velocity)));
-    // Compute the displacement due to velocity
-    var displacement = scale(dt, this.velocity);
-    if (length(displacement) > 0) {   // NOTE: This check is needed for the rotation code to work
-      // Rotate the ball
-      // NOTE: The rotation axis for the ball is perpendicular to the velocity
-      // vector and the table normal (+Z axis). The angular displacement Theta is
-      // related to the linear displacement of the ball r and the radius of the
-      // ball R by the equation Theta=r/R. Quaternions can be easily calculated
-      // from a rotational axis and an angle. In short: find the rotation axis
-      // and angular displacement to make a quaternion.
-      // TODO: I can probably avoid computing the length twice here
-      var rotationAxis = normalize(cross(vec3(0.0, 0.0, 1.0), displacement));
-      var angularDisplacement = length(displacement) / BALL_RADIUS;
-      this.orientation = qmult(quat(rotationAxis, angularDisplacement), this.orientation);
-      // Displace the ball
-      this.position = add(this.position, displacement);
-    }
+  switch (this.state) {
+    case 'inPlay':
+      // Physics for balls on the table
+      this.velocity[2] = 0.0;  // Make sure the ball does not leave the billiard table surface
+      if (length(this.velocity) < BALL_VELOCITY_EPSILON) {
+        this.velocity = vec3(0.0, 0.0, 0.0);
+      } else {
+        // Account for rolling resistance, i.e. friction
+        this.velocity = add(this.velocity, scale(-dt*BALL_CLOTH_ROLLING_RESISTANCE_ACCELERATION, normalize(this.velocity)));
+        // Compute the displacement due to velocity
+        var displacement = scale(dt, this.velocity);
+        if (length(displacement) > 0.0) {   // NOTE: This check is needed for the rotation code to work
+          // Rotate the ball
+          // NOTE: The rotation axis for the ball is perpendicular to the velocity
+          // vector and the table normal (+Z axis). The angular displacement Theta is
+          // related to the linear displacement of the ball r and the radius of the
+          // ball R by the equation Theta=r/R. Quaternions can be easily calculated
+          // from a rotational axis and an angle. In short: find the rotation axis
+          // and angular displacement to make a quaternion.
+          // TODO: I can probably avoid computing the length twice here
+          var rotationAxis = normalize(cross(vec3(0.0, 0.0, 1.0), displacement));
+          var angularDisplacement = length(displacement) / BALL_RADIUS;
+          this.orientation = qmult(quat(rotationAxis, angularDisplacement), this.orientation);
+          // Displace the ball
+          this.position = add(this.position, displacement);
+        }
+      }
+      break;
+    case 'fallingInPocket':
+      // Nudge ourselves towards the pocket center (if low velocity)
+      if (length(this.velocity) < POCKET_EDGE_MIN_FUDGE_VELOCITY) {
+        this.velocity = add(this.velocity, scale(POCKET_EDGE_FUDGE_ACCELERATION*dt, normalize(subtract(this.pocket, this.position))));
+      }
+      // Apply acceleration due to gravity
+      this.velocity = add(this.velocity, vec3(0.0, 0.0, -GRAVITY_ACCELERATION*dt));
+      // NOTE: The rotation code appears above as well
+      // Compute the displacement due to velocity
+      var displacement = scale(dt, this.velocity);
+      console.log("Pocketed ball displacement: " + displacement);
+      if (length(displacement) > 0.0) {   // NOTE: This check is needed for the rotation code to work
+        // Rotate the ball
+        // NOTE: The rotation axis for the ball is perpendicular to the velocity
+        // vector and the table normal (+Z axis). The angular displacement Theta is
+        // related to the linear displacement of the ball r and the radius of the
+        // ball R by the equation Theta=r/R. Quaternions can be easily calculated
+        // from a rotational axis and an angle. In short: find the rotation axis
+        // and angular displacement to make a quaternion.
+        // TODO: I can probably avoid computing the length twice here
+        var rotationAxis = normalize(cross(vec3(0.0, 0.0, 1.0), displacement));
+        var angularDisplacement = length(displacement) / BALL_RADIUS;
+        this.orientation = qmult(quat(rotationAxis, angularDisplacement), this.orientation);
+        // Displace the ball
+        this.position = add(this.position, displacement);
+        // TODO: Prevent the ball from leaving the pocket
+      }
+      break;
+    default:
+      throw "Unknown billiard ball physics state: " + this.state;
   }
 }
 BilliardBall.prototype.project = function(normal) {
@@ -978,22 +1017,19 @@ var BilliardTable = function(gamemode, position, orientation) {
   // Set game parameters based on the selected game mode
   switch (gamemode) {
     case EIGHT_BALL_MODE:
-      this.numBalls = EIGHT_BALL_NUM_BALLS;
       // Make objects for each ball
       this.balls = [];
       // Place the cue ball somewhere in "the kitchen"
       // FIXME: The cue ball should be placed by the player
       this.balls.push(new BilliardBall(0, vec3((-3/8) * TABLE_LENGTH, 0.0)));
-      for (var i = 1; i < this.numBalls; ++i) {
+      for (var i = 1; i < EIGHT_BALL_NUM_BALLS; ++i) {
         // Position the balls in a triangle rack
         this.balls.push(new BilliardBall(i, vec3(TRIANGLE_RACK[i-1][0], TRIANGLE_RACK[i-1][1])));
       }
       break;
     case NINE_BALL_MODE:
-      this.numBalls = NINE_BALL_NUM_BALLS;
       break;
     case STRAIGHT_POOL_MODE:
-      this.numBalls = STRAIGHT_POOL_NUM_BALLS;
       break;
     default:
       window.alert("Unknown game mode!");
@@ -1121,8 +1157,8 @@ BilliardTable.prototype.restoreState = function(state) {
 BilliardTable.prototype.drawChildren = function(gl, modelWorld, worldView, projection) {
   var initialSize = modelWorld.size();
 
-  // FIXME: Don't draw balls that have already been pocketed
-  for (var i = 0; i < this.numBalls; ++i) {
+  // NOTE: Pocketed balls stop drawing themselves once they've faded out
+  for (var i = 0; i < this.balls.length; ++i) {
     // Draw each ball
     this.balls[i].draw(gl, modelWorld, worldView, projection);
   }
@@ -1141,6 +1177,12 @@ BilliardTable.prototype.tick = function(dt) {
   // table with perspective view)? Is the user dragging the cue stick(top ortho
   // view)?  Was the que ball just struck? Is the target ball close to a pocket
   // (pocket view)?
+
+  // Advance the state of all of the balls
+  for (var i = 0; i < this.balls.length; ++i) {
+    this.balls[i].tick(dt);
+  }
+
   switch (this.state) {
     case 'start':
     case 'placeBalls':
@@ -1227,11 +1269,6 @@ BilliardTable.prototype.tickSimulation = function(dt) {
     case 'startSimulation':
     case 'running':
       this.simulationState = 'running';
-      // Advance all balls by their velocities
-      // FIXME: Don't loop through balls that have already been pocketed
-      for (var i = 0; i < this.numBalls; ++i) {
-        this.balls[i].tick(dt);
-      }
 
       // Simulate the collision physics of the billiard balls in 2D
 
@@ -1262,7 +1299,7 @@ BilliardTable.prototype.tickSimulation = function(dt) {
           } else {
             greaterNumber = this.xBalls[i].number;
           }
-          xCollisions[lesserNumber + greaterNumber * this.numBalls] = true;
+          xCollisions[lesserNumber + greaterNumber * this.balls.length] = true;
         }
       }
       // Sort yBalls by y position
@@ -1284,7 +1321,7 @@ BilliardTable.prototype.tickSimulation = function(dt) {
           } else {
             greaterNumber = this.yBalls[i].number;
           }
-          if (typeof xCollisions[lesserNumber + greaterNumber * this.numBalls] != 'undefined') {
+          if (typeof xCollisions[lesserNumber + greaterNumber * this.balls.length] != 'undefined') {
     //        window.alert("Broad-phase collision between " + lesserNumber + " and " + greaterNumber + " distance: " + length(subtract(this.yBalls[i].position, this.yBalls[j].position)));
             // Exact collision detection
             if (length(subtract(this.yBalls[i].position, this.yBalls[j].position)) < BALL_DIAMETER) {
@@ -1403,37 +1440,37 @@ BilliardTable.prototype.tickSimulation = function(dt) {
       southeastPocketNeighborhood.forEach(function(ball) {
         if (length(subtract(SOUTHEAST_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
           window.alert("Pocketed ball in southeast pocket: " + ball);
-          billiardTable.balls[ball].pocketed(SOUTHEAST_POCKET);
+          billiardTable.pocketBall(ball, SOUTHEAST_POCKET);
         }
       });
       southwestPocketNeighborhood.forEach(function(ball) {
         if (length(subtract(SOUTHWEST_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
           window.alert("Pocketed ball in southwest pocket: " + ball);
-          billiardTable.balls[ball].pocketed(SOUTHWEST_POCKET);
+          billiardTable.pocketBall(ball, SOUTHWEST_POCKET);
         }
       });
       northeastPocketNeighborhood.forEach(function(ball) {
         if (length(subtract(NORTHEAST_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
           window.alert("Pocketed ball in northeast pocket: " + ball);
-          billiardTable.balls[ball].pocketed(NORTHEAST_POCKET);
+          billiardTable.pocketBall(ball, NORTHEAST_POCKET);
         }
       });
       northwestPocketNeighborhood.forEach(function(ball) {
         if (length(subtract(NORTHWEST_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
           window.alert("Pocketed ball in northwest pocket: " + ball);
-          billiardTable.balls[ball].pocketed(NORTHWEST_POCKET);
+          billiardTable.pocketBall(ball, NORTHWEST_POCKET);
         }
       });
       southPocketNeighborhood.forEach(function(ball) {
         if (length(subtract(SOUTH_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
           window.alert("Pocketed ball in south pocket: " + ball);
-          billiardTable.balls[ball].pocketed(SOUTH_POCKET);
+          billiardTable.pocketBall(ball, SOUTH_POCKET);
         }
       });
       northPocketNeighborhood.forEach(function(ball) {
         if (length(subtract(NORTH_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
           window.alert("Pocketed ball in north pocket: " + ball);
-          billiardTable.balls[ball].pocketed(NORTH_POCKET);
+          billiardTable.pocketBall(ball, NORTH_POCKET);
         }
       });
 
@@ -1575,7 +1612,24 @@ BilliardTable.prototype.handleCornerCollision = function(ball, corner, collision
   var cornerToBallCenter = subtract(vec2(ball.position), corner);
 //  ball.position = add(ball.position, vec3(scale(BALL_RADIUS-length(cornerToBallCenter), normalize(cornerToBallCenter))));
 }
-BilliardTable.prototype.tickGameLogic = function(dt) {
+BilliardTable.prototype.pocketBall = function(ballNumber, pocket) {
+  // Remove the ball from the broad-phase collision detection lists
+  for (var i = 0; i < this.xBalls.length; ++i) {
+    if (this.xBalls[i].number == ballNumber) {
+      this.xBalls.splice(i, 1);  // Remove the ball from the array
+      break;
+    }
+  }
+  for (var i = 0; i < this.yBalls.length; ++i) {
+    if (this.yBalls[i].number == ballNumber) {
+      this.yBalls.splice(i, 1);  // Remove the ball from the array
+      break;
+    }
+  }
+  // Set the pocket for the ball (and notify its state machine)
+  this.balls[ballNumber].setPocket(pocket);
+  // TODO: Note the simulation time that the ball was pocketed, so we can make a nice
+  // replay
 }
 BilliardTable.prototype.tickCameras = function(dt) {
   // Determine which camera we should be using
