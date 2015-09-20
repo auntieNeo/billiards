@@ -29,6 +29,9 @@ var MAX_SHOT_DISTANCE = CURSOR_RADIUS_EPSILON + (BALL_RADIUS + MAX_SHOT_VELOCITY
 // Pocket physics fudge constants
 var POCKET_EDGE_MIN_FUDGE_VELOCITY = 3.0E-2;
 var POCKET_EDGE_FUDGE_ACCELERATION = GRAVITY_ACCELERATION/2;
+var POCKET_DAMPER = 0.75;
+var BALL_TIME_TO_FADE_IN = 0.1;
+var BALL_TIME_TO_FADE_OUT = 0.5;
 
 // Various billiards dimensions in meters
 /*
@@ -301,9 +304,12 @@ var textureAssets = [
   "common/cue_stick.png",
   "common/test.png"
 ];
-var shaderAssets = [ { name: "billiardball", vert: "billiardball-vert", frag: "billiardball-frag",
+var shaderAssets = [ { name: "billiardtable", vert: "billiardtable-vert", frag: "billiardtable-frag",
                        attributes: [ "vertexPosition", "vertexUV", "vertexNormal" ],
                        uniforms: [ "modelViewMatrix", "projectionMatrix" ] },
+                     { name: "billiardball", vert: "billiardball-vert", frag: "billiardball-frag",
+                       attributes: [ "vertexPosition", "vertexUV", "vertexNormal" ],
+                       uniforms: [ "modelViewMatrix", "projectionMatrix", "fadeAlpha" ] },
                      { name: "cuestick", vert: "cuestick-vert", frag: "cuestick-frag",
                        attributes: [ "vertexPosition", "vertexUV", "vertexNormal" ],
                        uniforms: [ "modelViewMatrix", "projectionMatrix", "fadeAlpha" ] },
@@ -883,6 +889,8 @@ var BilliardBall = function(number, initialPosition) {
   this.scale = BALL_RADIUS;  // The mesh has unit 1m radius
 
   this.state = 'idle';
+
+  this.fadeAlpha = 0.0;
 };
 BilliardBall.prototype = Object.create(MeshObject.prototype);
 BilliardBall.prototype.constructor = BilliardBall;
@@ -904,15 +912,30 @@ BilliardBall.prototype.tick = function(dt) {
     case 'idle':
       break;
     case 'startInPlay':
-    case 'inPlay':
+      this.timeElapsedInPlay = -dt;  // -dt + dt = 0.0
       this.state = 'inPlay';
+      this.fadeAlpha = 0.0;
+    case 'inPlay':
+      this.timeElapsedInPlay += dt;
+      // Interpolate the fade alpha from the time this ball is put in play
+      if (this.fadeAlpha < 1.0) {
+        this.fadeAlpha = Math.min(this.timeElapsedInPlay/BALL_TIME_TO_FADE_IN, 1.0);
+      }
       this.tickPhysics(dt);
       break;
     case 'startPocketed':
-    case 'fallingInPocket':
+      this.timeElapsedSincePocketed = -dt;  // -dt + dt = 0.0
       this.state = 'fallingInPocket';
-      this.tickPhysics(dt);
-      break;
+    case 'fallingInPocket':
+      this.timeElapsedSincePocketed += dt;
+      this.tickPhysics(dt);  // Still falling
+      // Interpolate the fade alpha from the time pocketed to the fade out time
+//      this.fadeAlpha = 1.0 - (this.timeElapsedSincePocketed/BALL_TIME_TO_FADE_OUT);
+      while (this.timeElapsedSincePocketed < BALL_TIME_TO_FADE_OUT) {
+        break;
+      }
+      this.fadeAlpha = 0.0;
+      this.state = 'pocketed';
     case 'pocketed':
       break;
     default:
@@ -950,15 +973,24 @@ BilliardBall.prototype.tickPhysics = function(dt) {
       break;
     case 'fallingInPocket':
       // Nudge ourselves towards the pocket center (if low velocity)
-      if (length(this.velocity) < POCKET_EDGE_MIN_FUDGE_VELOCITY) {
-        this.velocity = add(this.velocity, scale(POCKET_EDGE_FUDGE_ACCELERATION*dt, normalize(subtract(this.pocket, this.position))));
+      var speed = length(this.velocity);
+      if ((speed > 0) && (speed < POCKET_EDGE_MIN_FUDGE_VELOCITY)) {
+        this.velocity = add(this.velocity, vec3(scale(POCKET_EDGE_FUDGE_ACCELERATION*dt, normalize(subtract(this.pocket, vec2(this.position))))));
       }
       // Apply acceleration due to gravity
       this.velocity = add(this.velocity, vec3(0.0, 0.0, -GRAVITY_ACCELERATION*dt));
+      if (length(subtract(vec2(this.position[0], this.position[1]), this.pocket)) > POCKET_RADIUS-BALL_RADIUS) {
+        // Prevent the ball from leaving the pocket
+        this.velocity = scale(POCKET_DAMPER, reflection(this.velocity, normalize(subtract(vec3(this.pocket), this.position))))
+      }
+      // Stop the ball eventually
+      if (length(vec2(this.velocity)) < BALL_VELOCITY_EPSILON) {
+        this.velocity[0] = 0.0;
+        this.velocity[1] = 0.0;
+      }
       // NOTE: The rotation code appears above as well
       // Compute the displacement due to velocity
       var displacement = scale(dt, this.velocity);
-      console.log("Pocketed ball displacement: " + displacement);
       if (length(displacement) > 0.0) {   // NOTE: This check is needed for the rotation code to work
         // Rotate the ball
         // NOTE: The rotation axis for the ball is perpendicular to the velocity
@@ -973,7 +1005,11 @@ BilliardBall.prototype.tickPhysics = function(dt) {
         this.orientation = qmult(quat(rotationAxis, angularDisplacement), this.orientation);
         // Displace the ball
         this.position = add(this.position, displacement);
-        // TODO: Prevent the ball from leaving the pocket
+        // Stop the ball at the bottom of the pocket
+        this.position[2] = Math.max(this.position[2], POCKET_BOTTOM+BALL_RADIUS);
+        if (this.position[2] <= POCKET_BOTTOM+BALL_RADIUS) {
+          this.velocity[2] = 0.0;
+        }
       }
       break;
     default:
@@ -1003,6 +1039,30 @@ BilliardBall.prototype.project = function(normal) {
   // circle is at most one ball radius away from the center point.
   return vec2(projected[0] - BALL_RADIUS, projected[0] + BALL_RADIUS);
 }
+BilliardBall.prototype.draw = function(gl, modelWorld, worldView, projection) {
+  // Don't bother drawing the ball while it's not being used
+  if (this.state == 'idle' ||
+      this.state == 'pocketed') {
+    return;
+  }
+
+  // We need to use our shader program in order to set its state
+  this.useShaderProgram(gl);
+
+  // Pass alpha to the shader
+  gl.uniform1f(this.shaderProgram.uniforms.fadeAlpha, this.fadeAlpha);
+
+  if (this.fadeAlpha < 1.0) {
+    // Enable alpha blending for fade in/out
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    gl.enable(gl.BLEND);
+  }
+
+  MeshObject.prototype.draw.call(this, gl, modelWorld, worldView, projection);
+
+  // Clean up
+  gl.disable(gl.BLEND);
+}
 
 //------------------------------------------------------------
 // Prototype for billiard tables
@@ -1010,7 +1070,7 @@ BilliardBall.prototype.project = function(normal) {
 var BilliardTable = function(gamemode, position, orientation) {
   // Iherit from SceneObject
   MeshObject.call(this,
-      "common/billiard_table.obj", "common/billiard_table_simple_colors.png", "billiardball",
+      "common/billiard_table.obj", "common/billiard_table_simple_colors.png", "billiardtable",
       position, orientation);
 
   this.gamemode = gamemode;
@@ -1741,6 +1801,9 @@ var CueStick = function(position, orientation) {
 
   // The billiard table references this value, so we'd better keep it valid
   this.releasedTimeElapsed = 0.0;
+
+  // Start out invisible
+  this.fadeAlpha = 0.0;
 }
 CueStick.prototype = Object.create(MeshObject.prototype);
 CueStick.prototype.startSetupShot = function() {
@@ -1795,18 +1858,18 @@ CueStick.prototype.tick = function(dt) {
       this.orientation = quat(vec3(0.0, 0.0, 1.0), Math.atan2(cueBallDirection[1], cueBallDirection[0]));
 
       if (cueBallDistance < CURSOR_RADIUS_EPSILON) {
+        // FIXME: Ignore any shots from this distance?
         // Clamp the magnitude of any shots within CURSOR_RADIUS_EPSILON of the
         // ball to the weakest shot.
         this.position = add(scale(-(BALL_RADIUS + SHOT_VELOCITY_EPSILON*CUE_STICK_TIME_TO_COLLISION), cueBallDirection), this.cueBallPosition);
-        // FIXME: Ignore any shots from this distance
-      } else if (cueBallDistance > CURSOR_RADIUS_EPSILON + (BALL_RADIUS + MAX_SHOT_VELOCITY*CUE_STICK_TIME_TO_COLLISION)) {
-        this.position = add(scale(-(BALL_RADIUS + MAX_SHOT_VELOCITY*CUE_STICK_TIME_TO_COLLISION), cueBallDirection), this.cueBallPosition);
-        // TODO: Smooth the transition from near-max to max velocity (it looks a little stiff)
-      } else {
+      } else if (cueBallDistance < CURSOR_RADIUS_EPSILON + (MAX_SHOT_VELOCITY*CUE_STICK_TIME_TO_COLLISION)) {
         // Subtract the CURSOR_RADIUS_EPSILON from our radius so we gain more
         // accuracy even for weak shots (i.e. the cursor can tranverse more
         // pixels for better angles with a large radius).
-        this.position = add(scale(-(cueBallDistance - CURSOR_RADIUS_EPSILON), cueBallDirection), this.cueBallPosition);
+        this.position = add(scale(-(cueBallDistance + BALL_RADIUS - CURSOR_RADIUS_EPSILON), cueBallDirection), this.cueBallPosition);
+      } else {
+        // Clamp the cursor radius to the maximum shot velocity
+        this.position = add(scale(-(BALL_RADIUS + MAX_SHOT_VELOCITY*CUE_STICK_TIME_TO_COLLISION), cueBallDirection), this.cueBallPosition);
       }
 
       // FIXME: This might look better if we translated the stick along its local Z axis. It might also look much worse, since the tip of the cue stick would be much further from the table. For now it looks fine.
@@ -2448,6 +2511,7 @@ WESTERN_CUSHIONS.push(WEST_CUSHION);
 // Table pocket positions for collision detection (values from the model)
 POCKET_DIAMETER = 19.377E-2;
 POCKET_RADIUS = POCKET_DIAMETER/2;
+POCKET_BOTTOM = -10.1446E-2;
 POCKETS = [];
 SOUTHEAST_POCKET = vec2(1.20688 ,-62.29423E-2);
 SOUTH_POCKET = vec2(0.0, -67.94704E-2);
