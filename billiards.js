@@ -189,8 +189,8 @@ window.onload = function init() {
   gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
   gl.clearColor(0.0, 0.0, 0.0, 1.0);
   gl.enable(gl.DEPTH_TEST);
-  gl.disable(gl.CULL_FACE);
-//  gl.cullFace(gl.FRONT);
+  gl.enable(gl.CULL_FACE);
+  gl.cullFace(gl.BACK);
 
   //----------------------------------------
   // TODO: load shaders and initialize attribute
@@ -298,11 +298,14 @@ var textureAssets = [
   "common/test.png"
 ];
 var shaderAssets = [ { name: "billiardball", vert: "billiardball-vert", frag: "billiardball-frag",
-                       attributes: { vertexPosition: -1, vertexUV: -1, vertexNormal: -1 },
-                       uniforms: { modelViewMatrix: null, projectionMatrix: null } },
+                       attributes: [ "vertexPosition", "vertexUV", "vertexNormal" ],
+                       uniforms: [ "modelViewMatrix", "projectionMatrix" ] },
+                     { name: "cuestick", vert: "cuestick-vert", frag: "cuestick-frag",
+                       attributes: [ "vertexPosition", "vertexUV", "vertexNormal" ],
+                       uniforms: [ "modelViewMatrix", "projectionMatrix", "fadeAlpha" ] },
                      { name: "debug", vert: "debug-vert", frag: "debug-frag",
-                       attributes: { vertexPosition: -1 },
-                       uniforms: { modelViewMatrix: null, projectionMatrix: null } }
+                       attributes: [ "vertexPosition" ],
+                       uniforms: [ "modelViewMatrix", "projectionMatrix" ] }
 ];
 var assetIndex = 0;
 var assetHandle = null;
@@ -342,17 +345,17 @@ function loadAssets() {
     var shaderProgram =
       initShaders(gl, shaderAssets[i].vert, shaderAssets[i].frag);
     // Get shader attribute locations
-    shaderProgram.attributes = {
-      vertexPosition: gl.getAttribLocation(shaderProgram, "vertexPosition"),
-      vertexUV: gl.getAttribLocation(shaderProgram, "vertexUV"),
-      vertexNormal: gl.getAttribLocation(shaderProgram, "vertexNormal")
-    };
+    shaderProgram.attributes = {};
+    for (var j = 0; j < shaderAssets[i].attributes.length; ++j) {
+      shaderProgram.attributes[shaderAssets[i].attributes[j]] =
+        gl.getAttribLocation(shaderProgram, shaderAssets[i].attributes[j]);
+    }
     // Get shader uniform locations
-    shaderProgram.uniforms = {
-      modelViewMatrix: gl.getUniformLocation(shaderProgram, "modelViewMatrix"),
-      projectionMatrix: gl.getUniformLocation(shaderProgram, "projectionMatrix"),
-      textureSampler: gl.getUniformLocation(shaderProgram, "textureSampler")
-    };
+    shaderProgram.uniforms = {};
+    for (var j = 0; j < shaderAssets[i].uniforms.length; ++j) {
+      shaderProgram.uniforms[shaderAssets[i].uniforms[j]] =
+        gl.getUniformLocation(shaderProgram, shaderAssets[i].uniforms[j]);
+    }
     assets[shaderAssets[i].name] = shaderProgram;
     assetIndex += 1;
   } else if (assetArray === textureAssets) {
@@ -794,8 +797,9 @@ MeshObject.prototype.draw = function(gl, modelWorld, worldView, projection) {
 //------------------------------------------------------------
 // Prototype for billiard ball objects
 //------------------------------------------------------------
-var BilliardBall = function(number, position, orientation) {
+var BilliardBall = function(number, initialPosition) {
   this.number = number;
+  this.initialPosition = initialPosition;
 
   // Determine the ball texture to use
   var textureFile;
@@ -868,18 +872,51 @@ var BilliardBall = function(number, position, orientation) {
 
   // Iherit from mesh object
   MeshObject.call(this,
-      "common/unit_billiard_ball.obj", textureFile, "billiardball",
-      position, orientation);
+      "common/unit_billiard_ball.obj", textureFile, "billiardball");
 
   // Initial physical properties
   this.velocity = vec3(0.0, 0.0, 0.0);
   this.scale = BALL_RADIUS;  // The mesh has unit 1m radius
+
+  this.state = 'idle';
 };
 BilliardBall.prototype = Object.create(MeshObject.prototype);
 BilliardBall.prototype.constructor = BilliardBall;
+BilliardBall.prototype.putInPlay = function(position) {
+  if (typeof position == 'undefined') {
+    // Place the ball in its rack position on the table
+    this.position = vec3(this.initialPosition[0], this.initialPosition[1], BALL_RADIUS);
+  } else {
+    this.position = vec3(position[0], position[1], BALL_RADIUS);
+  }
+  this.state = 'startInPlay';
+}
+BilliardBall.prototype.setPocket = function(pocket) {
+  this.state = 'startPocketed';
+}
 BilliardBall.prototype.tick = function(dt) {
+  switch (this.state) {
+    case 'idle':
+      break;
+    case 'startInPlay':
+    case 'inPlay':
+      this.state = 'inPlay';
+      this.tickPhysics(dt);
+      break;
+    case 'startPocketed':
+      break;
+    case 'animatePocketed':
+      // TODO: Animate the ball rolling towards the center of the pocket
+      break;
+    case 'pocketed':
+      break;
+    default:
+      throw "Unknown billiard ball state '" + this.state + "'!";
+  }
+}
+BilliardBall.prototype.tickPhysics = function(dt) {
+  // Physics for balls on the table
   this.velocity[2] = 0.0;  // Make sure the ball does not leave the billiard table surface
-  // TODO: Implement 3-dimensional velocity for balls falling in pockets
   if (length(this.velocity) < BALL_VELOCITY_EPSILON) {
     this.velocity = vec3(0.0, 0.0, 0.0);
   } else {
@@ -904,12 +941,11 @@ BilliardBall.prototype.tick = function(dt) {
     }
   }
 }
-var once1 = false;  // XXX
 BilliardBall.prototype.project = function(normal) {
   // This routine is used in the Separating Axis Theorem algorithm to detect
   // collisions between ball and cushion
 
-  // TODO: Rotate our center point such that it is in the space where the given
+  // Rotate our center point such that it is in the space where the given
   // normal is parallel to the X-axis
   var angle = Math.atan2(normal[1], normal[0]);
   var c = Math.cos(angle);
@@ -917,9 +953,6 @@ BilliardBall.prototype.project = function(normal) {
 
   var rotated = mult(vec2(this.position), mat2( c, s,      // Rotate
                                                -s, c));
-  // Draw an X where the ball is to debug it
-  debug.drawLine(add(rotated, vec2(-BALL_RADIUS, -BALL_RADIUS)), add(rotated, vec2(BALL_RADIUS, BALL_RADIUS)));
-  debug.drawLine(add(rotated, vec2(-BALL_RADIUS, BALL_RADIUS)), add(rotated, vec2(BALL_RADIUS, -BALL_RADIUS)));
 
   // NOTE: We don't actually need to project here. We do so anyway for clarity.
   var projected = mult(vec2(this.position), mult(mat2(1.0, 0.0,   // Project
@@ -950,10 +983,10 @@ var BilliardTable = function(gamemode, position, orientation) {
       this.balls = [];
       // Place the cue ball somewhere in "the kitchen"
       // FIXME: The cue ball should be placed by the player
-      this.balls.push(new BilliardBall(0, vec3((-3/8) * TABLE_LENGTH, 0.0, BALL_RADIUS)));
+      this.balls.push(new BilliardBall(0, vec3((-3/8) * TABLE_LENGTH, 0.0)));
       for (var i = 1; i < this.numBalls; ++i) {
         // Position the balls in a triangle rack
-        this.balls.push(new BilliardBall(i, vec3(TRIANGLE_RACK[i-1][0], TRIANGLE_RACK[i-1][1], BALL_RADIUS)));
+        this.balls.push(new BilliardBall(i, vec3(TRIANGLE_RACK[i-1][0], TRIANGLE_RACK[i-1][1])));
       }
       break;
     case NINE_BALL_MODE:
@@ -1037,8 +1070,9 @@ var BilliardTable = function(gamemode, position, orientation) {
     billiardTable.keyUpEvent(event);
   }
 
-  // Initialize the game logic state machine
-  this.gameState = 'start';
+  // Initialize the billiard table state machines
+  this.state = 'start';
+  this.simulationState = 'stopped';
 
   // TODO: Draw some lines for debugging cushion collision
   for (var i = 0; i < CUSHIONS.length; ++i) {
@@ -1093,252 +1127,347 @@ BilliardTable.prototype.drawChildren = function(gl, modelWorld, worldView, proje
     this.balls[i].draw(gl, modelWorld, worldView, projection);
   }
 
+  // The cue stick is drawn above everything
   this.cueStick.draw(gl, modelWorld, worldView, projection);
 
   // Return the model-world transformation stack to its original state
   modelWorld.unwind(initialSize);
 }
 BilliardTable.prototype.tick = function(dt) {
-  this.tickSimulation(dt);
-  this.tickGameLogic(dt);
-  this.tickCameras(dt);
-}
-BilliardTable.prototype.tickSimulation = function(dt) {
-  // Advance all balls by their velocities
-  // FIXME: Don't loop through balls that have already been pocketed
-  for (var i = 0; i < this.numBalls; ++i) {
-    this.balls[i].tick(dt);
+  // TODO: Choose cameras that are most appropriate/interesting by using the game state and Camera.isInView()
+//  this.currentCamera.follow(billiardTable.balls[8]);
+//  this.currentCamera.rotateAbout(billiardTable, vec3(0.0, 0.0, 1.0), 2*Math.PI / 10.0);
+  // TODO: Determine the camera to draw (e.g. are we idling (rotate around the
+  // table with perspective view)? Is the user dragging the cue stick(top ortho
+  // view)?  Was the que ball just struck? Is the target ball close to a pocket
+  // (pocket view)?
+  switch (this.state) {
+    case 'start':
+    case 'placeBalls':
+      this.xBalls = [];
+      this.yBalls = [];
+      for (var i = 1; i < this.balls.length; ++i) {
+        this.balls[i].putInPlay();
+        this.xBalls.push(this.balls[i]);
+        this.yBalls.push(this.balls[i]);
+      }
+    case 'initialDropCueBall':
+      // TODO
+      this.balls[0].putInPlay();
+      this.xBalls.push(this.balls[0]);
+      this.yBalls.push(this.balls[0]);
+    case 'startSetupShot':
+      this.cueStick.setCueBallPosition(this.balls[0].position);
+      this.cueStick.startSetupShot();
+    case 'setupShot':
+      this.state = 'setupShot';
+      this.cueStick.setCursorPosition(this.mousePos);
+      if (typeof this.mouseStart == 'undefined') {
+        break;  // No clicks yet
+      }
+      // The user clicked; release the cue stick
+      this.cueStick.release();
+    case 'cueStickRelease':
+      this.state = 'cueStickRelease';
+      // The user has released the cue stick and now the cue stick will animate
+      // to the point where it strikes the cue ball.
+      // Wait until the cue stick strikes the cue ball.
+      if (this.cueStick.releasedTimeElapsed < CUE_STICK_TIME_TO_COLLISION) {
+        break;
+      }
+    case 'cueStickCollision':
+      this.balls[0].velocity = add(this.balls[0].velocity, this.cueStick.collisionVelocity);
+      // TODO: Save a replay
+      this.startSimulation();
+    case 'postCollision':
+      // FIXME: The cue stick/ball physics is clearly broken (the stick moves faster than the ball)
+      this.state = 'postCollision';
+    case 'simulation':
+      this.state = 'simulation';
+      // TODO: Wait for all of the balls to settle down
+      var done = true;
+      for (var i = 0; i < this.balls.length; ++i) {
+        if (length(this.balls[i].velocity) > 0.0) {  // FIXME: Also consider pocketed balls
+          done = false;
+          break;
+        }
+      }
+      if (!this.cueStick.isIdle()) {
+        done = false;  // Synchronize the billiard table state machine and the cue stick state machine
+      }
+      if (!done) { 
+        break;  // Keep waiting
+      }
+    case 'postSimulation':
+      this.state = 'postSimulation';
+      // TODO: Play replays (if we have any pocketed balls)
+      // TODO: Determine what turn is next (i.e. cue shot, cue ball drop, or break shot)
+      // TODO: Start the next turn
+      this.state = 'startSetupShot';
+      break;
+    default:
+      throw "Unknown billiard table state '" + this.state + "'!";
   }
 
   this.cueStick.tick(dt);
-
-  // TODO: Simulate the effect of the cue stick on the cue ball
-
-  // Simulate the collision physics of the billiard balls in 2D
-
-  // Detect ball-ball collisions
-  // First, broad-phase collision detection with sweep and prune algorithm
-  // NOTE: Insertion sort could be used here because (1) we need to iterate to
-  // find all potential collisions anyway and (2) insertion sort has an
-  // amortized running time of O(n) for nearly-sorted lists such as these. I'm
-  // guessing Javascript's quicksort implementation is faster (because it would
-  // be implemented in C), but I don't have any benchmarks yet.
-  var xCollisions = [];
-  // Sort xBalls by x position
-  this.xBalls.sort(function(a, b) {
-    return a.position[0] - b.position[0];
-  });
-  // Iterate forwards (positive-x direction) through all balls
-  for (var i = 1; i < this.xBalls.length; ++i) {
-    // Search backwards (negative-x direction) for collisions
-    for (var j = i - 1; j >= 0; --j) {
-      if (this.xBalls[i].position[0] - this.xBalls[j].position[0] >= BALL_DIAMETER)
-        break;
-      // Potential collision between xBalls[i] and xBalls[j]
-      var lesserNumber = this.xBalls[j].number;
-      var greaterNumber;
-      if (this.xBalls[i].number < lesserNumber) {
-        greaterNumber = lesserNumber;
-        lesserNumber = this.xBalls[i].number;
-      } else {
-        greaterNumber = this.xBalls[i].number;
+  this.tickCameras(dt);
+  this.tickSimulation(dt);
+}
+BilliardTable.prototype.startSimulation = function() {
+  this.simulationState = 'startSimulation';
+}
+BilliardTable.prototype.stopSimulation = function() {
+  this.simulationState = 'stopSimulation';
+}
+BilliardTable.prototype.tickSimulation = function(dt) {
+  switch (this.simulationState) {
+    case 'stopSimulation':
+    case 'stopped':
+      break;
+    case 'startSimulation':
+    case 'running':
+      this.simulationState = 'running';
+      // Advance all balls by their velocities
+      // FIXME: Don't loop through balls that have already been pocketed
+      for (var i = 0; i < this.numBalls; ++i) {
+        this.balls[i].tick(dt);
       }
-      xCollisions[lesserNumber + greaterNumber * this.numBalls] = true;
-    }
-  }
-  // Sort yBalls by y position
-  this.yBalls.sort(function(a, b) {
-    return a.position[1] - b.position[1];
-  });
-  // Iterate forwards (positive-y direction) through all balls
-  for (var i = 1; i < this.yBalls.length; ++i) {
-    // Search backwards (negative-y direction) for collisions
-    for (var j = i - 1; j >= 0; --j) {
-      if (this.yBalls[i].position[1] - this.yBalls[j].position[1] >= BALL_DIAMETER)
-        break;
-      // Potential collision between yBalls[i] and yBalls[j]
-      var lesserNumber = this.yBalls[j].number;
-      var greaterNumber;
-      if (this.yBalls[i].number < lesserNumber) {
-        greaterNumber = lesserNumber;
-        lesserNumber = this.yBalls[i].number;
-      } else {
-        greaterNumber = this.yBalls[i].number;
-      }
-      if (typeof xCollisions[lesserNumber + greaterNumber * this.numBalls] != 'undefined') {
-//        window.alert("Broad-phase collision between " + lesserNumber + " and " + greaterNumber + " distance: " + length(subtract(this.yBalls[i].position, this.yBalls[j].position)));
-        // Exact collision detection
-        if (length(subtract(this.yBalls[i].position, this.yBalls[j].position)) < BALL_DIAMETER) {
-//          window.alert("Collision between " + lesserNumber + " and " + greaterNumber);
-          // Reflection of balls
-          var iVelocity = elasticCollisionReflection(
-              this.yBalls[i].velocity, this.yBalls[j].velocity,
-              this.yBalls[i].position, this.yBalls[j].position);
-          var jVelocity = elasticCollisionReflection(
-              this.yBalls[j].velocity, this.yBalls[i].velocity,
-              this.yBalls[j].position, this.yBalls[i].position);
-          this.yBalls[i].velocity = iVelocity;
-          this.yBalls[j].velocity = jVelocity;
-          // Displace the balls so that they are no longer colliding
-          var iDisplacement = collisionDisplacement(this.yBalls[i].position, this.yBalls[j].position, BALL_RADIUS);
-          var jDisplacement = collisionDisplacement(this.yBalls[j].position, this.yBalls[i].position, BALL_RADIUS);
-          this.yBalls[i].position = add(this.yBalls[i].position, scale(1.01, iDisplacement));
-          this.yBalls[j].position = add(this.yBalls[j].position, scale(1.01, jDisplacement));
-          // TODO: Recursive resolution of collision
+
+      // Simulate the collision physics of the billiard balls in 2D
+
+      // Detect ball-ball collisions
+      // First, broad-phase collision detection with sweep and prune algorithm
+      // NOTE: Insertion sort could be used here because (1) we need to iterate to
+      // find all potential collisions anyway and (2) insertion sort has an
+      // amortized running time of O(n) for nearly-sorted lists such as these. I'm
+      // guessing Javascript's quicksort implementation is faster (because it would
+      // be implemented in C), but I don't have any benchmarks yet.
+      var xCollisions = [];
+      // Sort xBalls by x position
+      this.xBalls.sort(function(a, b) {
+        return a.position[0] - b.position[0];
+      });
+      // Iterate forwards (positive-x direction) through all balls
+      for (var i = 1; i < this.xBalls.length; ++i) {
+        // Search backwards (negative-x direction) for collisions
+        for (var j = i - 1; j >= 0; --j) {
+          if (this.xBalls[i].position[0] - this.xBalls[j].position[0] >= BALL_DIAMETER)
+            break;
+          // Potential collision between xBalls[i] and xBalls[j]
+          var lesserNumber = this.xBalls[j].number;
+          var greaterNumber;
+          if (this.xBalls[i].number < lesserNumber) {
+            greaterNumber = lesserNumber;
+            lesserNumber = this.xBalls[i].number;
+          } else {
+            greaterNumber = this.xBalls[i].number;
+          }
+          xCollisions[lesserNumber + greaterNumber * this.numBalls] = true;
         }
       }
-    }
-  }
-
-  // Determine ball-wall collisions by first considering the outlier balls in a
-  // "broad-phase" before testing for collisions with the actual cushions
-  // Consider westmost balls
-  for (var i = 0; i < this.xBalls.length; ++i) {
-    if (this.xBalls[i].position[0] < -(TABLE_LENGTH/2 - BALL_RADIUS)) {
-      // This ball is beyond the western wall; look for cushion collisions
-      this.handleCushionCollisions(this.xBalls[i], WESTERN_CUSHIONS);
-    } else break;
-  }
-  // Consider eastmost balls
-  for (var i = this.xBalls.length - 1; i >= 0; --i) {
-    if (this.xBalls[i].position[0] > TABLE_LENGTH/2 - BALL_RADIUS) {
-      // This ball is beyond the eastern wall; look for cushion collisions
-      this.handleCushionCollisions(this.xBalls[i], EASTERN_CUSHIONS);
-    } else break;
-  }
-  // Consider southmost balls
-  for (var i = 0; i < this.yBalls.length; ++i) {
-    if (this.yBalls[i].position[1] < -(TABLE_WIDTH/2 - BALL_RADIUS)) {
-      // This ball is beyond the southern wall; look for cushion collisions
-      this.handleCushionCollisions(this.yBalls[i], SOUTHERN_CUSHIONS);
-    } else break;
-  }
-  // Consider northmost balls
-  for (var i = this.xBalls.length - 1; i >= 0; --i) {
-    if (this.yBalls[i].position[1] > TABLE_WIDTH/2 - BALL_RADIUS) {
-      // This ball is beyond the northern wall; look for cushion collisions
-      this.handleCushionCollisions(this.yBalls[i], NORTHERN_CUSHIONS);
-    } else break;
-  }
-
-  // Determine ball-pocket collisions by first examining each pocket
-  // neighborhood in broad-phase collision detection
-  // Scan from east to west to determine the east pocket neighborhood
-  var eastPocketNeighborhood = new Set();
-  for (var i = this.xBalls.length - 1; i >= 0; --i) {
-    if (this.xBalls[i].position[0] > SOUTHEAST_POCKET[0] - POCKET_RADIUS) {
-      eastPocketNeighborhood.add(this.xBalls[i].number);
-      console.log("Found ball " + this.xBalls[i].number + " in east pocket neighborhood");
-      continue;
-    }
-    break;
-  }
-  // TODO: Scan from west to east to determine the west pocket neighborhood
-  var westPocketNeighborhood = new Set();
-  for (var i = 0; i < this.xBalls.length; ++i) {
-    if (this.xBalls[i].position[0] < SOUTHWEST_POCKET[0] + POCKET_RADIUS) {
-      westPocketNeighborhood.add(this.xBalls[i].number);
-      console.log("Found ball " + this.xBalls[i].number + " in west pocket neighborhood");
-      continue;
-    }
-    break;
-  }
-  // TODO: Scan from south to north to determine the south pocket neighborhood
-  var southPocketNeighborhood = new Set();
-  for (var i = 0; i < this.yBalls.length; ++i) {
-    if (this.yBalls[i].position[1] < Math.max(SOUTH_POCKET[1], SOUTHEAST_POCKET[1]) + POCKET_RADIUS) {
-      southPocketNeighborhood.add(this.yBalls[i].number);
-      console.log("Found ball " + this.yBalls[i].number + " in south pocket neighborhood");
-      continue;
-    }
-    break;
-  }
-  // TODO: Scan from north to south to determine the north pocket neighborhood
-  var northPocketNeighborhood = new Set();
-  for (var i = this.yBalls.length - 1; i >= 0; --i) {
-    if (this.yBalls[i].position[1] > Math.min(NORTH_POCKET[1], NORTHEAST_POCKET[1]) - POCKET_RADIUS) {
-      northPocketNeighborhood.add(this.yBalls[i].number);
-      console.log("Found ball " + this.yBalls[i].number + " in north pocket neighborhood");
-      continue;
-    }
-    break;
-  }
-
-  var setUnion = function(a, b) {
-    var result = new Set();
-    a.forEach(function(item) {
-      if (b.has(item)) {
-        result.add(item);
+      // Sort yBalls by y position
+      this.yBalls.sort(function(a, b) {
+        return a.position[1] - b.position[1];
+      });
+      // Iterate forwards (positive-y direction) through all balls
+      for (var i = 1; i < this.yBalls.length; ++i) {
+        // Search backwards (negative-y direction) for collisions
+        for (var j = i - 1; j >= 0; --j) {
+          if (this.yBalls[i].position[1] - this.yBalls[j].position[1] >= BALL_DIAMETER)
+            break;
+          // Potential collision between yBalls[i] and yBalls[j]
+          var lesserNumber = this.yBalls[j].number;
+          var greaterNumber;
+          if (this.yBalls[i].number < lesserNumber) {
+            greaterNumber = lesserNumber;
+            lesserNumber = this.yBalls[i].number;
+          } else {
+            greaterNumber = this.yBalls[i].number;
+          }
+          if (typeof xCollisions[lesserNumber + greaterNumber * this.numBalls] != 'undefined') {
+    //        window.alert("Broad-phase collision between " + lesserNumber + " and " + greaterNumber + " distance: " + length(subtract(this.yBalls[i].position, this.yBalls[j].position)));
+            // Exact collision detection
+            if (length(subtract(this.yBalls[i].position, this.yBalls[j].position)) < BALL_DIAMETER) {
+    //          window.alert("Collision between " + lesserNumber + " and " + greaterNumber);
+              // Reflection of balls
+              var iVelocity = elasticCollisionReflection(
+                  this.yBalls[i].velocity, this.yBalls[j].velocity,
+                  this.yBalls[i].position, this.yBalls[j].position);
+              var jVelocity = elasticCollisionReflection(
+                  this.yBalls[j].velocity, this.yBalls[i].velocity,
+                  this.yBalls[j].position, this.yBalls[i].position);
+              this.yBalls[i].velocity = iVelocity;
+              this.yBalls[j].velocity = jVelocity;
+              // Displace the balls so that they are no longer colliding
+              var iDisplacement = collisionDisplacement(this.yBalls[i].position, this.yBalls[j].position, BALL_RADIUS);
+              var jDisplacement = collisionDisplacement(this.yBalls[j].position, this.yBalls[i].position, BALL_RADIUS);
+              this.yBalls[i].position = add(this.yBalls[i].position, scale(1.01, iDisplacement));
+              this.yBalls[j].position = add(this.yBalls[j].position, scale(1.01, jDisplacement));
+              // TODO: Recursive resolution of collision
+            }
+          }
+        }
       }
-    });
-    return result;
-  }
-  // Cross-reference each pocket neighborhood (set union) to see if we have a
-  // potential collision
-  var southeastPocketNeighborhood = setUnion(southPocketNeighborhood, eastPocketNeighborhood);
-  var southwestPocketNeighborhood = setUnion(southPocketNeighborhood, westPocketNeighborhood);
-  var northeastPocketNeighborhood = setUnion(northPocketNeighborhood, eastPocketNeighborhood);
-  var northwestPocketNeighborhood = setUnion(northPocketNeighborhood, westPocketNeighborhood);
-  var billiardTable = this;
-  // Check for collisions in each pocket
-  southeastPocketNeighborhood.forEach(function(ball) {
-    if (length(subtract(SOUTHEAST_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
-      window.alert("Pocketed ball in southeast pocket: " + ball);
-    }
-  });
-  southwestPocketNeighborhood.forEach(function(ball) {
-    if (length(subtract(SOUTHWEST_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
-      window.alert("Pocketed ball in southwest pocket: " + ball);
-    }
-  });
-  northeastPocketNeighborhood.forEach(function(ball) {
-    if (length(subtract(NORTHEAST_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
-      window.alert("Pocketed ball in northeast pocket: " + ball);
-    }
-  });
-  northwestPocketNeighborhood.forEach(function(ball) {
-    if (length(subtract(NORTHWEST_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
-      window.alert("Pocketed ball in northwest pocket: " + ball);
-    }
-  });
-  southPocketNeighborhood.forEach(function(ball) {
-    if (length(subtract(SOUTH_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
-      window.alert("Pocketed ball in south pocket: " + ball);
-    }
-  });
-  northPocketNeighborhood.forEach(function(ball) {
-    if (length(subtract(NORTH_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
-      window.alert("Pocketed ball in north pocket: " + ball);
-    }
-  });
 
-  var msg = "Balls in southeast pocket neighborhood: ";
-  var foundSome = false;
-  southeastPocketNeighborhood.forEach(function(ball) {
-    msg += "  " + ball;
-    foundSome = true;
-  });
-  msg += "\n";
-  msg += "Balls in southwest pocket neighborhood: ";
-  southwestPocketNeighborhood.forEach(function(ball) {
-    msg += "  " + ball;
-    foundSome = true;
-  });
-  msg += "\n";
-  msg += "Balls in northeast pocket neighborhood: ";
-  northeastPocketNeighborhood.forEach(function(ball) {
-    msg += "  " + ball;
-    foundSome = true;
-  });
-  msg += "\n";
-  msg += "Balls in northwest pocket neighborhood: ";
-  northwestPocketNeighborhood.forEach(function(ball) {
-    msg += "  " + ball;
-    foundSome = true;
-  });
-  msg += "\n";
-  if (foundSome) {
-//    window.alert(msg);
+      // Determine ball-wall collisions by first considering the outlier balls in a
+      // "broad-phase" before testing for collisions with the actual cushions
+      // Consider westmost balls
+      for (var i = 0; i < this.xBalls.length; ++i) {
+        if (this.xBalls[i].position[0] < -(TABLE_LENGTH/2 - BALL_RADIUS)) {
+          // This ball is beyond the western wall; look for cushion collisions
+          this.handleCushionCollisions(this.xBalls[i], WESTERN_CUSHIONS);
+        } else break;
+      }
+      // Consider eastmost balls
+      for (var i = this.xBalls.length - 1; i >= 0; --i) {
+        if (this.xBalls[i].position[0] > TABLE_LENGTH/2 - BALL_RADIUS) {
+          // This ball is beyond the eastern wall; look for cushion collisions
+          this.handleCushionCollisions(this.xBalls[i], EASTERN_CUSHIONS);
+        } else break;
+      }
+      // Consider southmost balls
+      for (var i = 0; i < this.yBalls.length; ++i) {
+        if (this.yBalls[i].position[1] < -(TABLE_WIDTH/2 - BALL_RADIUS)) {
+          // This ball is beyond the southern wall; look for cushion collisions
+          this.handleCushionCollisions(this.yBalls[i], SOUTHERN_CUSHIONS);
+        } else break;
+      }
+      // Consider northmost balls
+      for (var i = this.xBalls.length - 1; i >= 0; --i) {
+        if (this.yBalls[i].position[1] > TABLE_WIDTH/2 - BALL_RADIUS) {
+          // This ball is beyond the northern wall; look for cushion collisions
+          this.handleCushionCollisions(this.yBalls[i], NORTHERN_CUSHIONS);
+        } else break;
+      }
+
+      // Determine ball-pocket collisions by first examining each pocket
+      // neighborhood in broad-phase collision detection
+      // Scan from east to west to determine the east pocket neighborhood
+      var eastPocketNeighborhood = new Set();
+      for (var i = this.xBalls.length - 1; i >= 0; --i) {
+        if (this.xBalls[i].position[0] > SOUTHEAST_POCKET[0] - POCKET_RADIUS) {
+          eastPocketNeighborhood.add(this.xBalls[i].number);
+          console.log("Found ball " + this.xBalls[i].number + " in east pocket neighborhood");
+          continue;
+        }
+        break;
+      }
+      // TODO: Scan from west to east to determine the west pocket neighborhood
+      var westPocketNeighborhood = new Set();
+      for (var i = 0; i < this.xBalls.length; ++i) {
+        if (this.xBalls[i].position[0] < SOUTHWEST_POCKET[0] + POCKET_RADIUS) {
+          westPocketNeighborhood.add(this.xBalls[i].number);
+          console.log("Found ball " + this.xBalls[i].number + " in west pocket neighborhood");
+          continue;
+        }
+        break;
+      }
+      // TODO: Scan from south to north to determine the south pocket neighborhood
+      var southPocketNeighborhood = new Set();
+      for (var i = 0; i < this.yBalls.length; ++i) {
+        if (this.yBalls[i].position[1] < Math.max(SOUTH_POCKET[1], SOUTHEAST_POCKET[1]) + POCKET_RADIUS) {
+          southPocketNeighborhood.add(this.yBalls[i].number);
+          console.log("Found ball " + this.yBalls[i].number + " in south pocket neighborhood");
+          continue;
+        }
+        break;
+      }
+      // TODO: Scan from north to south to determine the north pocket neighborhood
+      var northPocketNeighborhood = new Set();
+      for (var i = this.yBalls.length - 1; i >= 0; --i) {
+        if (this.yBalls[i].position[1] > Math.min(NORTH_POCKET[1], NORTHEAST_POCKET[1]) - POCKET_RADIUS) {
+          northPocketNeighborhood.add(this.yBalls[i].number);
+          console.log("Found ball " + this.yBalls[i].number + " in north pocket neighborhood");
+          continue;
+        }
+        break;
+      }
+
+      var setUnion = function(a, b) {
+        var result = new Set();
+        a.forEach(function(item) {
+          if (b.has(item)) {
+            result.add(item);
+          }
+        });
+        return result;
+      }
+      // Cross-reference each pocket neighborhood (set union) to see if we have a
+      // potential collision
+      var southeastPocketNeighborhood = setUnion(southPocketNeighborhood, eastPocketNeighborhood);
+      var southwestPocketNeighborhood = setUnion(southPocketNeighborhood, westPocketNeighborhood);
+      var northeastPocketNeighborhood = setUnion(northPocketNeighborhood, eastPocketNeighborhood);
+      var northwestPocketNeighborhood = setUnion(northPocketNeighborhood, westPocketNeighborhood);
+      var billiardTable = this;
+      // Check for collisions in each pocket
+      southeastPocketNeighborhood.forEach(function(ball) {
+        if (length(subtract(SOUTHEAST_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
+          window.alert("Pocketed ball in southeast pocket: " + ball);
+          billiardTable.balls[ball].pocketed(SOUTHEAST_POCKET);
+        }
+      });
+      southwestPocketNeighborhood.forEach(function(ball) {
+        if (length(subtract(SOUTHWEST_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
+          window.alert("Pocketed ball in southwest pocket: " + ball);
+          billiardTable.balls[ball].pocketed(SOUTHWEST_POCKET);
+        }
+      });
+      northeastPocketNeighborhood.forEach(function(ball) {
+        if (length(subtract(NORTHEAST_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
+          window.alert("Pocketed ball in northeast pocket: " + ball);
+          billiardTable.balls[ball].pocketed(NORTHEAST_POCKET);
+        }
+      });
+      northwestPocketNeighborhood.forEach(function(ball) {
+        if (length(subtract(NORTHWEST_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
+          window.alert("Pocketed ball in northwest pocket: " + ball);
+          billiardTable.balls[ball].pocketed(NORTHWEST_POCKET);
+        }
+      });
+      southPocketNeighborhood.forEach(function(ball) {
+        if (length(subtract(SOUTH_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
+          window.alert("Pocketed ball in south pocket: " + ball);
+          billiardTable.balls[ball].pocketed(SOUTH_POCKET);
+        }
+      });
+      northPocketNeighborhood.forEach(function(ball) {
+        if (length(subtract(NORTH_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
+          window.alert("Pocketed ball in north pocket: " + ball);
+          billiardTable.balls[ball].pocketed(NORTH_POCKET);
+        }
+      });
+
+      var msg = "Balls in southeast pocket neighborhood: ";
+      var foundSome = false;
+      southeastPocketNeighborhood.forEach(function(ball) {
+        msg += "  " + ball;
+        foundSome = true;
+      });
+      msg += "\n";
+      msg += "Balls in southwest pocket neighborhood: ";
+      southwestPocketNeighborhood.forEach(function(ball) {
+        msg += "  " + ball;
+        foundSome = true;
+      });
+      msg += "\n";
+      msg += "Balls in northeast pocket neighborhood: ";
+      northeastPocketNeighborhood.forEach(function(ball) {
+        msg += "  " + ball;
+        foundSome = true;
+      });
+      msg += "\n";
+      msg += "Balls in northwest pocket neighborhood: ";
+      northwestPocketNeighborhood.forEach(function(ball) {
+        msg += "  " + ball;
+        foundSome = true;
+      });
+      msg += "\n";
+      if (foundSome) {
+    //    window.alert(msg);
+      }
+      break;
+    default:
+      throw "Unknown simulation state '" + this.simulationState + "'!";
   }
 }
 BilliardTable.prototype.handleCushionCollisions = function(ball, cushions) {
@@ -1447,70 +1576,6 @@ BilliardTable.prototype.handleCornerCollision = function(ball, corner, collision
 //  ball.position = add(ball.position, vec3(scale(BALL_RADIUS-length(cornerToBallCenter), normalize(cornerToBallCenter))));
 }
 BilliardTable.prototype.tickGameLogic = function(dt) {
-  // TODO: Choose cameras that are most appropriate/interesting by using the game state and Camera.isInView()
-//  this.currentCamera.follow(billiardTable.balls[8]);
-//  this.currentCamera.rotateAbout(billiardTable, vec3(0.0, 0.0, 1.0), 2*Math.PI / 10.0);
-  // TODO: Determine the camera to draw (e.g. are we idling (rotate around the
-  // table with perspective view)? Is the user dragging the cue stick(top ortho
-  // view)?  Was the que ball just struck? Is the target ball close to a pocket
-  // (pocket view)?
-  switch (this.gameState) {
-    case 'start':
-//      this.gameState = 'initialCueBallDrop';
-      this.gameState = 'startSetupShot';  // XXX
-      break;
-    case 'initialDropCueBall':
-      break;
-    case 'startSetupShot':
-      this.cueStick.setCueBallPosition(this.balls[0].position);
-      this.cueStick.fadeIn();
-      this.cueStick.startSetupShot();
-    case 'setupShot':
-      this.gameState = 'setupShot';
-      this.cueStick.setCursorPosition(this.mousePos);
-      // TODO: Add controls for fine control of cue stick position (i.e. rotate the cue stick position about the cue ball)
-      if (typeof this.mouseStart == 'undefined') {
-        break;
-      }
-      // The user clicked; release the cue stick
-      this.cueStick.release();
-    case 'cueStickRelease':
-      this.gameState = 'cueStickRelease';
-      // The user has released the cue stick and now the cue stick will animate
-      // to the point where it strikes the cue ball.
-      // Wait until the cue stick strikes the cue ball.
-      if (this.cueStick.releasedTimeElapsed < CUE_STICK_TIME_TO_COLLISION) {
-        break;
-      }
-    case 'cueStickCollision':
-      // FIXME: The cue stick/ball physics is clearly broken (just look at it)
-      this.balls[0].velocity = add(this.balls[0].velocity, this.cueStick.collisionVelocity);
-    case 'postCollision':
-      this.gameState = 'postCollision';
-      // TODO: Wait for all of the balls to settle down
-      var done = true;
-      for (var i = 0; i < this.balls.length; ++i) {
-        if (length(this.balls[i].velocity) > 0.0) {  // FIXME: Also consider pocketed balls
-          done = false;
-          break;
-        }
-      }
-      if (!this.cueStick.isIdle()) {
-        done = false;  // Synchronize the billiard table state machine and the cue stick state machine
-      }
-      if (!done) { 
-        break;  // Keep waiting
-      }
-    case 'postSimulation':
-      this.gameState = 'postSimulation';
-      // TODO: Play replays (if we have any pocketed balls)
-      // TODO: Determine what turn is next (i.e. cue shot, cue ball drop, or break shot)
-      // TODO: Start the next turn
-      this.gameState = 'startSetupShot';
-      break;
-    default:
-      throw "Unknown billiard table state '" + this.gameState + "'!";
-  }
 }
 BilliardTable.prototype.tickCameras = function(dt) {
   // Determine which camera we should be using
@@ -1614,7 +1679,7 @@ BilliardTable.prototype.keyUpEvent = function(event) {
 var CueStick = function(position, orientation) {
   // Iherit from mesh object
   MeshObject.call(this,
-      "common/cue_stick.obj", "common/cue_stick.png", "billiardball",  // FIXME: Write a shader for the cue stick? Or rename the shader.
+      "common/cue_stick.obj", "common/cue_stick.png", "cuestick",
       position, orientation);
 
   // Start our state machine idle
@@ -1628,21 +1693,13 @@ CueStick.prototype.startSetupShot = function() {
   if (this.state != 'idle') {
     throw 'The cue stick is in a bad state!';
   }
-  this.state = 'setupShot';
+  this.state = 'startSetupShot';
 }
 CueStick.prototype.setCueBallPosition = function(pos) {
   this.cueBallPosition = pos;
 }
 CueStick.prototype.setCursorPosition = function(pos) {
   this.cursorPosition = pos;
-}
-CueStick.prototype.fadeIn = function(t) {
-  // TODO: Animate the fade in
-  this.drawAlpha = 1.0;
-}
-CueStick.prototype.fadeOut = function(t) {
-  // TODO: Animate the fade out
-  this.drawAlpha = 0.0;
 }
 CueStick.prototype.release = function() {
   this.state = 'startReleased';
@@ -1656,12 +1713,23 @@ CueStick.prototype.tick = function(dt) {
     case 'idle':
       // Wait for the cue stick to be needed
       break;
+    case 'startSetupShot':
+      // Set the initial position of the cue stick to something reasonable
+      this.position = add(vec3(-2*BALL_DIAMETER, 0.0, 0.0), this.cueBallPosition);
+      this.orientation = quat(vec3(0.0, 0.0, 1.0), Math.atan2(0.0, 1.0));
+      // Set the initial alpha
+      this.fadeAlpha = 0.0;
+      this.setupTimeElapsed = -dt;  // -dt + dt = 0.0
     case 'setupShot':
+      this.state = 'setupShot';
+      this.setupTimeElapsed += dt;
+      // Interpolate the alpha to fade in the cue stick
+      this.fadeAlpha = Math.min(this.setupTimeElapsed/CUE_STICK_TIME_TO_FADE_IN, 1.0);
       if (typeof this.cursorPosition == 'undefined') {
         break;  // No cursor to work with
       }
-      // TODO: Determine where the mouse cursor is relative to the cue ball and
-      // draw the cue stick
+      // Determine where the mouse cursor is relative to the cue ball and draw
+      // the cue stick
       var stickTransformation = new TransformationStack();
       var cueBallVector = subtract(this.cueBallPosition, vec3(this.cursorPosition[0], this.cursorPosition[1], this.cueBallPosition[2]));
       var cueBallDistance = length(cueBallVector);
@@ -1717,13 +1785,15 @@ CueStick.prototype.tick = function(dt) {
       // Update the time elapsed since release
       this.releasedTimeElapsed += dt;
       // Continue moving for a bit while we fade out
-      this.position = add(this.position, scale(dt, this.collisionVelocity));
-      // TODO: Interpolate the cue stick's alpha
+      this.position = this.collisionPosition;  // TODO: Use a formula with some acceleration
+      // Interpolate the cue stick's alpha
+      this.fadeAlpha = 1.0 - ((this.releasedTimeElapsed - CUE_STICK_TIME_TO_COLLISION) / CUE_STICK_TIME_AFTER_COLLISION);
       // Wait until we are fully disappeared
       if (this.releasedTimeElapsed < CUE_STICK_TIME_TO_COLLISION + CUE_STICK_TIME_AFTER_COLLISION) {
         break;
       }
     case 'postFollowThrough':
+      this.fadeAlpha = 0.0;
       // Reset the cue stick state for the next shot
       this.releasedTimeElapsed = 0.0;
       this.initialPosition = undefined;
@@ -1742,11 +1812,28 @@ CueStick.prototype.draw = function(gl, modelWorld, worldView, projection) {
     return;
   }
 
-  // TODO: Pass alpha to the shader
+  // We need to use our shader program in order to set its state
+  this.useShaderProgram(gl);
+
+  if (this.fadeAlpha < 1.0) {
+    // Pass alpha to the shader
+    gl.uniform1f(this.shaderProgram.uniforms.fadeAlpha, this.fadeAlpha);
+
+    // Enable alpha blending for fade in/out
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    gl.enable(gl.BLEND);
+  }
+
+  // Disable depth test; the cue stick is always drawn on top
+  gl.disable(gl.DEPTH_TEST);
 
   // TODO: Draw a line to the cue ball (especially for perspective shots)
 
   MeshObject.prototype.draw.call(this, gl, modelWorld, worldView, projection);
+
+  // Clean up
+  gl.enable(gl.DEPTH_TEST);
+  gl.disable(gl.BLEND);
 }
 
 //------------------------------------------------------------

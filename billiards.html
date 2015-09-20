@@ -50,11 +50,42 @@
       varying vec3 normal;
 
       uniform sampler2D textureSampler;
+//      uniform float fadeAlpha;
 
       void main(void) {
-//        gl_FragColor = vec4(uv, normal.x, 1.0);
-//        gl_FragColor = vec4(uv.s, uv.t, 0.0, 1.0);
         gl_FragColor = texture2D(textureSampler, uv);
+//        gl_FragColor = vec4(texture2D(textureSampler, uv).rgb, fadeAlpha);  // TODO
+      }
+    </script>
+
+    <script id="cuestick-vert" type="x-shader/x-vertex">
+      attribute vec3 vertexPosition;
+      attribute vec2 vertexUV;
+      attribute vec3 vertexNormal;
+      
+      uniform mat4 modelViewMatrix;
+      uniform mat4 projectionMatrix;
+
+      varying highp vec2 uv;
+      varying vec3 normal;
+      
+      void main(void) {
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);
+        uv = vec2(vertexUV.s, 1.0 - vertexUV.t);
+        normal = vertexNormal;
+      }
+    </script>
+    <script id="cuestick-frag" type="x-shader/x-fragment">
+      precision mediump float;
+
+      varying highp vec2 uv;  // FIXME: rename this to textureCoord
+      varying vec3 normal;
+
+      uniform sampler2D textureSampler;
+      uniform float fadeAlpha;
+
+      void main(void) {
+        gl_FragColor = vec4(texture2D(textureSampler, uv).rgb, fadeAlpha);
       }
     </script>
 
