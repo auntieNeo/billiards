@@ -8,7 +8,7 @@ var ENABLE_DEBUG = false;
 
 // Enable signed distance field textures
 // See: <http://www.valvesoftware.com/publications/2007/SIGGRAPH2007_AlphaTestedMagnification.pdf>
-var ENABLE_SDF = false;
+var ENABLE_SDF = true;
 
 // American-style ball
 var BALL_DIAMETER = 57.15E-3;  // 57.15mm
@@ -97,11 +97,19 @@ MAIN_CAMERA_MAX_ANGULAR_VELOCITY = Math.PI/1.0;
 MAIN_ORTHO_CAMERA_POSITION = vec3(0.0, 0.0, 1.0);
 MAIN_ORTHO_CAMERA_ORIENTATION = vec4(0.0, 0.0, 0.0, 1.0);
 
-SOUTH_POCKET_CAMERA_POSITION = vec3(0.0, 0.57724, 0.055582);
+SOUTH_POCKET_CAMERA_POSITION = vec3(0.0, 0.63724, 0.055582);
 SOUTH_POCKET_CAMERA_ORIENTATION = quat(-0.001, -0.510, -0.860, -0.002);
 SOUTH_POCKET_CAMERA_FOV = 100/2;  // Degrees
 SOUTH_POCKET_CAMERA_NEAR = .01;
 SOUTH_POCKET_CAMERA_FAR = 100;
+
+// The other cameras are mirror transforms of the above cameras
+NORTH_POCKET_CAMERA_POSITION = vec3(mult(vec4(SOUTH_POCKET_CAMERA_POSITION), scalem(1.0, -1.0, 1.0)));
+NORTH_POCKET_CAMERA_ORIENTATION = qmult(SOUTH_POCKET_CAMERA_ORIENTATION, quat(vec3(0.0, 0.0, 1.0), Math.PI));
+NORTH_POCKET_CAMERA_FOV = SOUTH_POCKET_CAMERA_FOV
+NORTH_POCKET_CAMERA_NEAR = SOUTH_POCKET_CAMERA_NEAR
+NORTH_POCKET_CAMERA_FAR = SOUTH_POCKET_CAMERA_FAR
+
 
 // Ball colors (passed to the shader)
 // Based on the color of bakelite billiard balls
@@ -384,7 +392,7 @@ var shaderAssets = [ { name: "billiardtable", vert: "billiardtable-vert", frag: 
                        uniforms: [ "modelViewMatrix", "projectionMatrix" ] },
                      { name: "billiardball-sdf", vert: "billiardball-sdf-vert", frag: "billiardball-sdf-frag",
                        attributes: [ "vertexPosition", "vertexUV", "vertexNormal" ],
-                       uniforms: [ "modelViewMatrix", "projectionMatrix", "textureSampler", "numberMask", "insideColor", "outsideColor" ] },
+                       uniforms: [ "modelViewMatrix", "projectionMatrix", "nearTexture", "farTexture", "numberMask", "insideColor", "outsideColor" ] },
                      { name: "cuestick", vert: "cuestick-vert", frag: "cuestick-frag",
                        attributes: [ "vertexPosition", "vertexUV", "vertexNormal" ],
                        uniforms: [ "modelViewMatrix", "projectionMatrix", "fadeAlpha" ] },
@@ -904,8 +912,8 @@ var BilliardBall = function(number, initialPosition) {
   // Determine the ball texture, color, and shader to use
   var shaderProgram;
   if (ENABLE_SDF) {
-    this.nearTextureFile = "common/billiard_ball_" + number + "_sdf_near.png";
-    this.farTextureFile = "common/billiard_ball_" + number + "_sdf_far.png";
+    this.nearTexture = "common/billiard_ball_" + number + "_sdf_near.png";
+    this.farTexture = "common/billiard_ball_" + number + "_sdf_far.png";
     shaderProgram = "billiardball-sdf";
     switch (number) {
       case 0:
@@ -1184,10 +1192,10 @@ BilliardBall.prototype.bindTextures = function(gl) {
     // low spread (the near texture). We need to bind these textures ourselves,
     // since the generic MeshObject prototype won't do that for us.
     gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, this.nearTexture);
+    gl.bindTexture(gl.TEXTURE_2D, assets[this.nearTexture]);
     gl.uniform1i(this.shaderProgram.uniforms.nearTexture, 0);
     gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, this.farTexture);
+    gl.bindTexture(gl.TEXTURE_2D, assets[this.farTexture]);
     gl.uniform1i(this.shaderProgram.uniforms.farTexture, 1);
 
     // Pass a mask for the ball numbers so that we can draw them black
@@ -1505,7 +1513,7 @@ BilliardTable.prototype.tick = function(dt) {
       }
     case 'postSimulation':
       this.state = 'postSimulation';
-      // TODO: Look for any new pocketed balls
+      // Look for any new pocketed balls
       var cueBallPocketed = false;
       this.replayQueue = new Map();
       for (var i = 0; i < this.pocketedBalls.length; ++i) {

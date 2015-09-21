@@ -110,9 +110,9 @@
       attribute vec3 vertexNormal;
       
       uniform mat4 modelViewMatrix;
-      uniform mat4 projectionMatrix;
+      uniform mediump mat4 projectionMatrix;
       
-      varying highp vec2 uv;
+      varying mediump vec2 uv;
       varying vec3 normal;
       
       void main(void) {
@@ -126,8 +126,10 @@
       // See here: <http://www.valvesoftware.com/publications/2007/SIGGRAPH2007_AlphaTestedMagnification.pdf>
       precision mediump float;
 
-      varying highp vec2 uv;
+      varying mediump vec2 uv;
       varying vec3 normal;
+
+      uniform mediump mat4 projectionMatrix;
 
       uniform sampler2D nearTexture;
       uniform sampler2D farTexture;
@@ -136,8 +138,14 @@
       uniform vec3 insideColor;
 
       void main(void) {
+        // Math for Z-depth from gl_fragCoord.z comes from Lengyel,
+        // "Mathematics for 3D Game Programming and Computer Graphics, Third
+        // Edition" page 114.
+        float a = projectionMatrix[2][2];
+        float b = projectionMatrix[3][2];
+        float zPos = -(((gl_FragCoord.z + a)*(-1.0/b))/1.0 + 1.0);
         vec4 baseColor;
-        if (gl_FragCoord.z < 0.5) {  // Arbitrary, 0.5 meters
+        if (zPos < -0.2) {  // Arbitrary, 0.2 meters
           // Use our far texture for balls far away
           baseColor = texture2D(farTexture, uv);
         } else {
