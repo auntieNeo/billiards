@@ -1246,9 +1246,55 @@ var BilliardTable = function(gamemode, position, orientation) {
       this.balls = [];
       // Place the cue ball somewhere in "the kitchen"
       this.balls.push(new BilliardBall(0, vec3((-3/8) * TABLE_LENGTH, 0.0)));
+      // Make a set of unracked balls
+      var unrackedBalls = new Set();
       for (var i = 1; i < EIGHT_BALL_NUM_BALLS; ++i) {
-        // Position the balls in a triangle rack
-        this.balls.push(new BilliardBall(i, vec3(TRIANGLE_RACK[i-1][0], TRIANGLE_RACK[i-1][1])));
+        unrackedBalls.add(i);
+      }
+      // Place the One ball at the front
+      this.balls.push(new BilliardBall(1, vec3(TRIANGLE_RACK[0][0], TRIANGLE_RACK[0][1])));
+      unrackedBalls.delete(1);
+      // Place the Eight ball in the middle
+      this.balls.push(new BilliardBall(8, vec3(TRIANGLE_RACK[4][0], TRIANGLE_RACK[4][1])));
+      unrackedBalls.delete(8);
+      // Place the rest of the balls at random, being careful to place the
+      // first solid and the first stripe we encounter in each of the corners
+      var nextPosition = 1;
+      var nextCornerPosition = 10;
+      var placedSolid = false;
+      var placedStripe = false;
+      while (unrackedBalls.size > 0) {
+        var ballNumber = takeRandomFromSet(unrackedBalls);
+        if ((isStriped(ballNumber) && !placedStripe) ||
+            (!isStriped(ballNumber) && !placedSolid)) {
+          // Place one of the corner balls
+          if (nextCornerPosition == 10) {
+            this.balls.push(new BilliardBall(ballNumber, vec3(TRIANGLE_RACK[10][0], TRIANGLE_RACK[10][1])));
+            nextCornerPosition = 14;
+          } else if (nextCornerPosition == 14) {
+            this.balls.push(new BilliardBall(ballNumber, vec3(TRIANGLE_RACK[14][0], TRIANGLE_RACK[14][1])));
+            nextCornerPosition = undefined;
+          }
+          if (isStriped(ballNumber)) {
+            placedStripe = true;
+          } else {
+            placedSolid = true;
+          }
+          continue;
+        }
+        // Place one of the balls not in the corner
+        this.balls.push(new BilliardBall(ballNumber, vec3(TRIANGLE_RACK[nextPosition][0], TRIANGLE_RACK[nextPosition][1])));
+        // Carefully avoid the Eight ball position and the corner positions
+        // when incrementing the placement position
+        if (nextPosition == 3) {
+          nextPosition = 5;  // Avoid the eight ball
+        } else if (nextPosition == 9) {
+          nextPosition = 11;  // Avoid the left corner
+        } else if (nextPosition == 13) {
+          nextPosition = 15;  // Avoid the right corner (should never happen)
+        } else {
+          nextPosition += 1;
+        }
       }
       break;
     case NINE_BALL_MODE:
@@ -1349,8 +1395,7 @@ BilliardTable.prototype.saveState = function() {
   // a deep copy idiom for objects, so we do it manually. Combined with
   // DETERMINISTIC_DT, this method implements replay functionality.
   var state = {};
-  // TODO: Save the state of the cue stick (presumably either at rest or just
-  // before striking the cue ball)
+
   // Save the state (initial positions, velocity, state machine status, etc.)
   // of all of the balls)
   state.balls = [];
@@ -1358,12 +1403,13 @@ BilliardTable.prototype.saveState = function() {
     state.balls.push(this.balls[i].saveState());
   }
 
+  // Save the elapsed simulation time
+  state.simulationElapsedTime = this.simulationElapsedTime;
+
   return state;
 }
 BilliardTable.prototype.restoreState = function(state) {
   // This method perfoms the reverse operation of saveState
-
-  // TODO: Restore the state of the cue stick
 
   // Restore the state of each of our balls
   this.xBalls = [];
@@ -1376,6 +1422,9 @@ BilliardTable.prototype.restoreState = function(state) {
       this.yBalls.push(this.balls[i]);
     }
   }
+
+  // Save the elapsed simulation time
+  this.simulationElapsedTime = state.simulationElapsedTime;
 }
 BilliardTable.prototype.drawChildren = function(gl, modelWorld, worldView, projection) {
   var initialSize = modelWorld.size();
@@ -1485,7 +1534,6 @@ BilliardTable.prototype.tick = function(dt) {
       }
     case 'cueStickCollision':
       this.balls[0].velocity = add(this.balls[0].velocity, this.cueStick.collisionVelocity);
-      // TODO: Save a replay
     case 'preSimulation':
       // Reset all of the ball first hit times
       for (var i = 0; i < this.balls.length; ++i) {
@@ -1514,11 +1562,11 @@ BilliardTable.prototype.tick = function(dt) {
     case 'postSimulation':
       this.state = 'postSimulation';
       // Look for any new pocketed balls
-      var cueBallPocketed = false;
+      this.cueBallPocketed = false;
       this.replayQueue = new Map();
       for (var i = 0; i < this.pocketedBalls.length; ++i) {
         if (this.pocketedBalls[i].ball == 0) {
-          cueBallPocketed = true;
+          this.cueBallPocketed = true;
           // Remove the cue ball from the pocket
           this.pocketedBalls.splice(i, 1);
         }
@@ -1550,14 +1598,19 @@ BilliardTable.prototype.tick = function(dt) {
         }
         // TODO: Some game logic?
       }
-      // Gather the times of interest and sort them
+      // Gather the times of interest and pocket times and sort them
       this.timesOfInterest = [];
+      this.pocketTimes = [];
       billiardTable = this;
       this.replayQueue.forEach(function(item) {
         billiardTable.timesOfInterest.push(item);
+        billiardTable.pocketTimes.push(item);
         console.log("Following ball " + item.ballOfInterest + " to pocket " + item.pocket + " starting at time " + item.timeOfInterest + ".");
       });
       this.timesOfInterest.sort(function(a, b) {
+        return a - b;
+      });
+      this.pocketTimes.sort(function(a, b) {
         return a - b;
       });
     case 'startReplay':
@@ -1575,16 +1628,22 @@ BilliardTable.prototype.tick = function(dt) {
       this.state = 'initialReplay';
       // TODO: We need to animate the cue stick before starting the simulation
       // The replay simulates a lot of physics, but no game logic is advanced
+      // TODO: Skip replay if nothing happened
       // TODO: Check for times of interest and save the state at those times
-      // TODO: Stop the initial replay some short time after the last ball has been pocketed
-      break;
+      if (this.simulationElapsedTime > this.pocketTimes[this.pocketTimes.length - 1] + REPLAY_TIME_AFTER_LAST_POCKET) {
+        // Stop the initial replay some short time after the last ball has been
+        // pocketed
+      } else {
+        break;
+      }
     case 'replay':
+      // TODO: Replay some pocket shots
     case 'postReplay':
       // Restore the state from before playing the replays (and pray it works)
       this.restoreState(this.nextTurn);
     case 'nextTurnSetup':
       // TODO: Determine what turn is next (i.e. cue shot, cue ball drop, or break shot)
-      if (cueBallPocketed) {
+      if (this.cueBallPocketed) {
         // The cue ball was pocketed; we need to drop it somewhere
         this.balls[0].putInPlay(vec2(0.0, 0.0));
         this.state = 'dropCueBall';
@@ -1674,7 +1733,8 @@ BilliardTable.prototype.tickSimulation = function(dt) {
       this.isReplay = false;
     case 'startReplay':
       if (this.simulationState == 'startReplay') {
-        this.simulationElapsedTime = -dt;  // -dt + dt = 0.0
+        // NOTE: No need to set the elapsed time; it would have been saved with
+        // the simulation state
         this.isReplay = true;
       }
     case 'running':
@@ -3088,4 +3148,30 @@ GraphicsDebug.prototype.draw = function(gl, worldView, projection) {
                          0,         // Tightly packed
                          0);        // Position starts at the first value stored
   gl.drawArrays(gl.LINES, 0, this.lines.length);
+}
+
+// From <https://developer.mozilla.org/en/docs/Web/JavaScript/Reference/Global_Objects/Math/random>
+function getRandomInt(min, max) {
+    return Math.floor(Math.random() * (max - min)) + min;
+}
+
+var takeRandomFromSet = function(s) {
+  var i = getRandomInt(0, s.size);
+  var result = (Array.from(s))[i];
+  s.delete(result);
+  return result;
+}
+
+var isStriped = function(ballNumber) {
+  switch (ballNumber) {
+    case 9:
+    case 10:
+    case 11:
+    case 12:
+    case 13:
+    case 14:
+    case 15:
+      return true;
+  }
+  return false;
 }
