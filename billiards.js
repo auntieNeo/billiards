@@ -1291,14 +1291,15 @@ BilliardTable.prototype.tick = function(dt) {
       this.oldPocketedBalls = [];
     case 'startInitialDropCueBall':
       // Place the cue ball in the middle of the 'kitchen'
-      this.balls[0].putInPlay(vec2(0, vec3((-3/8) * TABLE_LENGTH, 0.0)));
+      this.balls[0].putInPlay(vec3((-3/8) * TABLE_LENGTH, BALL_RADIUS));
     case 'initialDropCueBall':
       this.state = 'initialDropCueBall';
       // Check for cursor position and, if it is inside the 'kitchen'
       // move the cue ball to that position
       if (typeof this.mousePos != 'undefined') {
         this.dropCueBall(this.balls[0], this.mousePos,
-            TABLE_WIDTH/2 - BALL_RADIUS, -TABLE_WIDTH/2 + BALL_RADIUS, -TABLE_LENGTH/4 - BALL_RADIUS, -TABLE_LENGTH/2 + BALL_RADIUS);
+            TABLE_WIDTH/2 - BALL_RADIUS, -TABLE_WIDTH/2 + BALL_RADIUS,
+            -TABLE_LENGTH/4 - BALL_RADIUS, -TABLE_LENGTH/2 + BALL_RADIUS);
       }
       if (typeof this.mouseStart == 'undefined') {
         break;  // No clicks yet
@@ -1311,11 +1312,31 @@ BilliardTable.prototype.tick = function(dt) {
       }
       this.mouseStart = undefined;  // Consume the click input
     case 'postInitialDropCueBall':
+      // Put the cue ball in our broad-phase collision list
       this.xBalls.push(this.balls[0]);
       this.yBalls.push(this.balls[0]);
     case 'dropCueBall':
       if (this.state == 'dropCueBall') {
-        // TODO: have the user drop the cue ball anywhere
+        // Have the user drop the cue ball anywhere
+        if (typeof this.mousePos != 'undefined') {
+          this.dropCueBall(this.balls[0], this.mousePos,
+              TABLE_WIDTH/2 - BALL_RADIUS, -TABLE_WIDTH/2 + BALL_RADIUS,
+              TABLE_LENGTH/2 - BALL_RADIUS, -TABLE_LENGTH/2 + BALL_RADIUS);
+        }
+        if (typeof this.mouseStart == 'undefined') {
+          break;  // No clicks yet
+        } else if (!this.checkDropCueBall(this.balls[0], this.mousePos,
+              TABLE_WIDTH/2 - BALL_RADIUS, -TABLE_WIDTH/2 + BALL_RADIUS,
+              TABLE_LENGTH/2 - BALL_RADIUS, -TABLE_LENGTH/2 + BALL_RADIUS)) {
+          // The user tried to place the cue ball in a pocket or on top of
+          // another ball. That's no good.
+          break;
+        } else {
+          this.mouseStart = undefined;  // Consume the click input
+          // Put the cue ball in our broad-phase collision list
+          this.xBalls.push(this.balls[0]);
+          this.yBalls.push(this.balls[0]);
+        }
       }
     case 'startSetupShot':
       this.cueStick.setCueBallPosition(this.balls[0].position);
@@ -1365,12 +1386,15 @@ BilliardTable.prototype.tick = function(dt) {
         if (this.pocketedBalls[i].ball == 0) {
           cueBallPocketed = true;
         }
+        // TODO: Some game logic?
       }
       // TODO: Determine what turn is next (i.e. cue shot, cue ball drop, or break shot)
       // TODO: Start the next turn
       if (cueBallPocketed) {
         // The cue ball was pocketed; we need to drop it somewhere
-        this.state = 'cueBallDrop';
+        this.balls[0].putInPlay(vec2(0.0, 0.0));
+        this.state = 'dropCueBall';
+        break;
       } else {  // TODO: Check that the game hasn't ended
         this.state = 'startSetupShot';
         break;
