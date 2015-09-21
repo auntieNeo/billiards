@@ -3,7 +3,12 @@
 //------------------------------------------------------------
 var gl;
 
+// Enable drawing debugging lines (not optimized; will probably impact performance)
 var ENABLE_DEBUG = false
+
+// Enable signed distance field textures
+// See: <http://www.valvesoftware.com/publications/2007/SIGGRAPH2007_AlphaTestedMagnification.pdf>
+var ENABLE_SDF = true
 
 // American-style ball
 var BALL_DIAMETER = 57.15E-3;  // 57.15mm
@@ -11,7 +16,9 @@ var BALL_RADIUS = BALL_DIAMETER / 2;
 
 // Various billiards physics constants
 // See: <http://billiards.colostate.edu/threads/physics.html>
-var BALL_CLOTH_COEFFICIENT_OF_ROLLING_RESISTANCE = 0.010  // 0.005 - 0.015
+var BALL_CLOTH_COEFFICIENT_OF_ROLLING_RESISTANCE = 0.010;  // 0.005 - 0.015
+var BALL_CLOTH_COEFFICIENT_OF_RESTITUTION =  0.75; // 0.6-0.9
+var BALL_BALL_COEFFICIENT_OF_RESTITUTION = 0.95;  // 0.92-0.98
 var BALL_VELOCITY_EPSILON = 0.001;  // Arbitrary m/s
 var GRAVITY_ACCELERATION = 9.80665;  // m/s^2
 var BALL_CLOTH_ROLLING_RESISTANCE_ACCELERATION =
@@ -74,7 +81,7 @@ var NINE_BALL_NUM_BALLS = 10;
 var STRAIGHT_POOL_NUM_BALLS = 16;
 
 // Animation constants
-var MAX_DT = 0.01; // XXX: This used to be 0.01  // Arbitrary s  // FIXME: un-marry the animation dt and the simulation dt
+var MAX_DT = 0.01;  // Arbitrary  // FIXME: un-marry the animation dt and the simulation dt
 var LARGE_DT = MAX_DT * 10;  // Arbitrary limit for frame drop warning
 var DETERMINISTIC_DT = true;
 
@@ -84,7 +91,7 @@ MAIN_CAMERA_ORIENTATION = vec4(0.463, 0.275, 0.437, 0.720);
 MAIN_CAMERA_FOV = 49.134/2;  // Degrees
 MAIN_CAMERA_NEAR = .1;
 MAIN_CAMERA_FAR = 100;
-MAIN_CAMERA_ANGULAR_ACCELERATION = 1.0;
+MAIN_CAMERA_ANGULAR_ACCELERATION = 3.0;
 MAIN_CAMERA_MAX_ANGULAR_VELOCITY = Math.PI/1.0;
 
 MAIN_ORTHO_CAMERA_POSITION = vec3(0.0, 0.0, 1.0);
@@ -295,8 +302,8 @@ var geometryAssets = [
   "common/billiard_table.obj",
   "common/cue_stick.obj"
 ];
-var textureAssets = [
-  "common/cue_ball.png",
+var nonSdfTextures = [
+  "common/billiard_ball_0.png",
   "common/billiard_ball_1.png",
   "common/billiard_ball_2.png",
   "common/billiard_ball_3.png",
@@ -307,27 +314,48 @@ var textureAssets = [
   "common/billiard_ball_8.png",
   "common/billiard_ball_9.png",
   "common/billiard_ball_10.png",
-  "common/billiard_ball_10_sdf.png",
-  "common/billiard_ball_10_sdf_2.png",
-  "common/billiard_ball_10_sdf_3.png",
-  "common/billiard_ball_10_sdf_4.png",
   "common/billiard_ball_11.png",
   "common/billiard_ball_12.png",
   "common/billiard_ball_13.png",
   "common/billiard_ball_14.png",
-  "common/billiard_ball_15.png",
+  "common/billiard_ball_15.png"
+];
+var sdfTextures = [
+  "common/number_mask.png",
+//  "common/billiard_ball_0_sdf.png",
+  "common/billiard_ball_1_sdf.png",
+  "common/billiard_ball_2_sdf.png",
+  "common/billiard_ball_3_sdf.png",
+  "common/billiard_ball_4_sdf.png",
+/*  "common/billiard_ball_5_sdf.png",
+  "common/billiard_ball_6_sdf.png",
+  "common/billiard_ball_7_sdf.png",
+  "common/billiard_ball_8_sdf.png",
+  "common/billiard_ball_9_sdf.png",
+  "common/billiard_ball_10_sdf.png",
+  "common/billiard_ball_11_sdf.png",
+  "common/billiard_ball_12_sdf.png",
+  "common/billiard_ball_13_sdf.png",
+  "common/billiard_ball_14_sdf.png",
+  "common/billiard_ball_15_sdf.png"  */
+];
+var textureAssets = [
   "common/billiard_table_simple_colors.png",
   "common/billiard_table.png",
   "common/cue_stick.png",
-  "common/sdf_test.png",
   "common/test.png"
 ];
+if (ENABLE_SDF) {
+  textureAssets = textureAssets.concat(sdfTextures);
+} else {
+  textureAssets = textureAssets.concat(nonSdfTextures);
+}
 var shaderAssets = [ { name: "billiardtable", vert: "billiardtable-vert", frag: "billiardtable-frag",
                        attributes: [ "vertexPosition", "vertexUV", "vertexNormal" ],
                        uniforms: [ "modelViewMatrix", "projectionMatrix" ] },
                      { name: "billiardball", vert: "billiardball-vert", frag: "billiardball-frag",
                        attributes: [ "vertexPosition", "vertexUV", "vertexNormal" ],
-                       uniforms: [ "modelViewMatrix", "projectionMatrix", "fadeAlpha" ] },
+                       uniforms: [ "modelViewMatrix", "projectionMatrix" ] },
                      { name: "billiardball-sdf", vert: "billiardball-sdf-vert", frag: "billiardball-sdf-frag",
                        attributes: [ "vertexPosition", "vertexUV", "vertexNormal" ],
                        uniforms: [ "modelViewMatrix", "projectionMatrix", "insideColor", "outsideColor" ] },
@@ -837,95 +865,86 @@ var BilliardBall = function(number, initialPosition) {
   // All balls have white on the outside
   this.outsideColor = BALL_WHITE;
 
-  // Determine the ball texture to use
+  // Determine the ball texture, color, and shader to use
   var textureFile;
-  switch (number) {
-    case 0:
-      // White
-//      textureFile = "common/cue_ball.png";
-      textureFile = "common/sdf_test.png";
-      this.insideColor = BALL_WHITE;
-      break;
-    case 1:
-      // Yellow solid
-      textureFile = "common/billiard_ball_1.png";
-      this.insideColor = BALL_YELLOW;
-      break;
-    case 2:
-      // Blue solid
-      textureFile = "common/billiard_ball_2.png";
-      this.insideColor = BALL_BLUE;
-      break;
-    case 3:
-      // Red solid
-      textureFile = "common/billiard_ball_3.png";
-      this.insideColor = BALL_RED;
-      break;
-    case 4:
-      // Purple solid
-      textureFile = "common/billiard_ball_4.png";
-      this.insideColor = BALL_PURPLE;
-      break;
-    case 5:
-      // Orange solid
-      textureFile = "common/billiard_ball_5.png";
-      this.insideColor = BALL_ORANGE;
-      break;
-    case 6:
-      // Green solid
-      textureFile = "common/billiard_ball_6.png";
-      this.insideColor = BALL_GREEN;
-      break;
-    case 7:
-      // Brown or maroon solid
-      textureFile = "common/billiard_ball_7.png";
-      this.insideColor = BALL_MAROON;
-      break;
-    case 8:
-      // Black solid
-      textureFile = "common/billiard_ball_8.png";
-      this.insideColor = BALL_BLACK;
-      break;
-    case 9:
-      // Yellow stripe
-      textureFile = "common/billiard_ball_9.png";
-      this.insideColor = BALL_YELLOW;
-      break;
-    case 10:
-      // Blue stripe
-      textureFile = "common/billiard_ball_10_sdf_4.png";
-      this.insideColor = BALL_BLUE;
-      break;
-    case 11:
-      // Red stripe
-      textureFile = "common/billiard_ball_11.png";
-      this.insideColor = BALL_RED;
-      break;
-    case 12:
-      // Purple stripe
-      textureFile = "common/billiard_ball_12.png";
-      this.insideColor = BALL_PURPLE;
-      break;
-    case 13:
-      // Orange stripe
-      textureFile = "common/billiard_ball_13.png";
-      this.insideColor = BALL_ORANGE;
-      break;
-    case 14:
-      // Green stripe
-      textureFile = "common/billiard_ball_14.png";
-      this.insideColor = BALL_GREEN;
-      break;
-    case 15:
-      // Brown or maroon stripe
-      textureFile = "common/billiard_ball_15.png";
-      this.insideColor = BALL_MAROON;
-      break;
+  var shaderProgram;
+  if (ENABLE_SDF) {
+    textureFile = "common/billiard_ball_" + number + "_sdf.png";
+    shaderProgram = "billiardball-sdf";
+    switch (number) {
+      case 0:
+        // White
+        this.insideColor = BALL_WHITE;
+        break;
+      case 1:
+        // Yellow solid
+        this.insideColor = BALL_YELLOW;
+        break;
+      case 2:
+        // Blue solid
+        this.insideColor = BALL_BLUE;
+        break;
+      case 3:
+        // Red solid
+        this.insideColor = BALL_RED;
+        break;
+      case 4:
+        // Purple solid
+        this.insideColor = BALL_PURPLE;
+        break;
+      case 5:
+        // Orange solid
+        this.insideColor = BALL_ORANGE;
+        break;
+      case 6:
+        // Green solid
+        this.insideColor = BALL_GREEN;
+        break;
+      case 7:
+        // Brown or maroon solid
+        this.insideColor = BALL_MAROON;
+        break;
+      case 8:
+        // Black solid
+        this.insideColor = BALL_BLACK;
+        break;
+      case 9:
+        // Yellow stripe
+        this.insideColor = BALL_YELLOW;
+        break;
+      case 10:
+        // Blue stripe
+        this.insideColor = BALL_BLUE;
+        break;
+      case 11:
+        // Red stripe
+        this.insideColor = BALL_RED;
+        break;
+      case 12:
+        // Purple stripe
+        this.insideColor = BALL_PURPLE;
+        break;
+      case 13:
+        // Orange stripe
+        this.insideColor = BALL_ORANGE;
+        break;
+      case 14:
+        // Green stripe
+        this.insideColor = BALL_GREEN;
+        break;
+      case 15:
+        // Brown or maroon stripe
+        this.insideColor = BALL_MAROON;
+        break;
+    }
+  } else {
+    textureFile = "common/billiard_ball_" + number + ".png";
+    shaderProgram = "billiardball";
   }
 
   // Iherit from mesh object
   MeshObject.call(this,
-      "common/unit_billiard_ball.obj", textureFile, "billiardball-sdf");
+      "common/unit_billiard_ball.obj", textureFile, shaderProgram);
 
   // Initial physical properties
   this.velocity = vec3(0.0, 0.0, 0.0);
@@ -1088,14 +1107,16 @@ BilliardBall.prototype.draw = function(gl, modelWorld, worldView, projection) {
     return;
   }
 
-  // We need to use our shader program in order to set its state
-  this.useShaderProgram(gl);
+  if (ENABLE_SDF) {
+    // We need to use our shader program in order to set its state
+    this.useShaderProgram(gl);
 
-  // Pass inside and outside colors to the shader
-  gl.uniform3f(this.shaderProgram.uniforms.insideColor,
-      this.insideColor[0], this.insideColor[1], this.insideColor[2]);
-  gl.uniform3f(this.shaderProgram.uniforms.outsideColor,
-      this.outsideColor[0], this.outsideColor[1], this.outsideColor[2]);
+    // Pass inside and outside colors to the shader
+    gl.uniform3f(this.shaderProgram.uniforms.insideColor,
+        this.insideColor[0], this.insideColor[1], this.insideColor[2]);
+    gl.uniform3f(this.shaderProgram.uniforms.outsideColor,
+        this.outsideColor[0], this.outsideColor[1], this.outsideColor[2]);
+  }
 
   MeshObject.prototype.draw.call(this, gl, modelWorld, worldView, projection);
 }
@@ -1172,7 +1193,7 @@ var BilliardTable = function(gamemode, position, orientation) {
   this.cameras.mainPerspective.interactiveRotate(
       this, vec3(0.0, 0.0, 1.0),
       MAIN_CAMERA_ANGULAR_ACCELERATION,
-      MAIN_CAMERA_ANGULAR_ACCELERATION,  // friction
+      MAIN_CAMERA_ANGULAR_ACCELERATION*2,  // friction
       MAIN_CAMERA_MAX_ANGULAR_VELOCITY);
   this.currentCamera = this.cameras.mainOrthographic;
   this.currentCameraAngle = 'orthographic';
@@ -1205,7 +1226,7 @@ var BilliardTable = function(gamemode, position, orientation) {
   this.state = 'start';
   this.simulationState = 'stopped';
 
-  // TODO: Draw some lines for debugging cushion collision
+  // Draw some lines for debugging cushion collision
   for (var i = 0; i < CUSHIONS.length; ++i) {
     CUSHIONS[i].drawDebug();
   }
@@ -1253,24 +1274,21 @@ BilliardTable.prototype.drawChildren = function(gl, modelWorld, worldView, proje
   var initialSize = modelWorld.size();
 
   // NOTE: Pocketed balls stop drawing themselves once they've faded out
-  for (var i = 0; i < this.balls.length; ++i) {
+  for (var i = 1; i < this.balls.length; ++i) {
     // Draw each ball
     this.balls[i].draw(gl, modelWorld, worldView, projection);
   }
+
   this.cueStick.draw(gl, modelWorld, worldView, projection);
+
+  // The cue ball is the only ball that obeys the cue stick's depth; draw it
+  // last
+  this.balls[0].draw(gl, modelWorld, worldView, projection);
 
   // Return the model-world transformation stack to its original state
   modelWorld.unwind(initialSize);
 }
 BilliardTable.prototype.tick = function(dt) {
-  // TODO: Choose cameras that are most appropriate/interesting by using the game state and Camera.isInView()
-  this.cameras.mainPerspective.follow(billiardTable.balls[0]);
-//  this.cameras.mainPerspective.rotateAbout(billiardTable, vec3(0.0, 0.0, 1.0), 2*Math.PI / 10.0);
-  // TODO: Determine the camera to draw (e.g. are we idling (rotate around the
-  // table with perspective view)? Is the user dragging the cue stick(top ortho
-  // view)?  Was the que ball just struck? Is the target ball close to a pocket
-  // (pocket view)?
-
   // Advance the state of all of the balls
   for (var i = 0; i < this.balls.length; ++i) {
     this.balls[i].tick(dt);
@@ -1363,7 +1381,7 @@ BilliardTable.prototype.tick = function(dt) {
       this.startSimulation();
     case 'simulation':
       this.state = 'simulation';
-      // TODO: Wait for all of the balls to settle down
+      // Wait for all of the balls to settle down
       var done = true;
       for (var i = 0; i < this.balls.length; ++i) {
         if (length(this.balls[i].velocity) > 0.0) {  // FIXME: Also consider pocketed balls
@@ -1439,8 +1457,6 @@ BilliardTable.prototype.checkDropCueBall = function(ball, position, north, south
     return false; // Wall collision; can't drop here
   }
 
-  window.alert("no wall collisions!");
-
   // Check for ball collisions
   for (var i = 0; i < this.balls.length; ++i) {
     if (!this.balls[i].isInPlay() || this.balls[i].number == ball.number) {
@@ -1450,7 +1466,6 @@ BilliardTable.prototype.checkDropCueBall = function(ball, position, north, south
       return false;  // Ball collision; can't drop here
     }
   }
-  window.alert("no ball collisions!");
 
   // Check for pocket collisions
   for (var i = 0; i < POCKETS.length; ++i) {
@@ -1458,8 +1473,6 @@ BilliardTable.prototype.checkDropCueBall = function(ball, position, north, south
       return false;  // Pocket collision; can't drop here
     }
   }
-
-  window.alert("no pocket collisions!");
 
   // Nothing bad found. We can drop the ball now.
   ball.position = vec3(position[0], position[1], BALL_RADIUS);
@@ -1535,10 +1548,8 @@ BilliardTable.prototype.tickSimulation = function(dt) {
             greaterNumber = this.yBalls[i].number;
           }
           if (typeof xCollisions[lesserNumber + greaterNumber * this.balls.length] != 'undefined') {
-    //        window.alert("Broad-phase collision between " + lesserNumber + " and " + greaterNumber + " distance: " + length(subtract(this.yBalls[i].position, this.yBalls[j].position)));
             // Exact collision detection
             if (length(subtract(this.yBalls[i].position, this.yBalls[j].position)) < BALL_DIAMETER) {
-    //          window.alert("Collision between " + lesserNumber + " and " + greaterNumber);
               // Reflection of balls
               var iVelocity = elasticCollisionReflection(
                   this.yBalls[i].velocity, this.yBalls[j].velocity,
@@ -1553,7 +1564,6 @@ BilliardTable.prototype.tickSimulation = function(dt) {
               var jDisplacement = collisionDisplacement(this.yBalls[j].position, this.yBalls[i].position, BALL_RADIUS);
               this.yBalls[i].position = add(this.yBalls[i].position, scale(1.01, iDisplacement));
               this.yBalls[j].position = add(this.yBalls[j].position, scale(1.01, jDisplacement));
-              // TODO: Recursive resolution of collision
             }
           }
         }
@@ -1602,7 +1612,7 @@ BilliardTable.prototype.tickSimulation = function(dt) {
         }
         break;
       }
-      // TODO: Scan from west to east to determine the west pocket neighborhood
+      // Scan from west to east to determine the west pocket neighborhood
       var westPocketNeighborhood = new Set();
       for (var i = 0; i < this.xBalls.length; ++i) {
         if (this.xBalls[i].position[0] < SOUTHWEST_POCKET[0] + POCKET_RADIUS) {
@@ -1612,7 +1622,7 @@ BilliardTable.prototype.tickSimulation = function(dt) {
         }
         break;
       }
-      // TODO: Scan from south to north to determine the south pocket neighborhood
+      // Scan from south to north to determine the south pocket neighborhood
       var southPocketNeighborhood = new Set();
       for (var i = 0; i < this.yBalls.length; ++i) {
         if (this.yBalls[i].position[1] < Math.max(SOUTH_POCKET[1], SOUTHEAST_POCKET[1]) + POCKET_RADIUS) {
@@ -1622,7 +1632,7 @@ BilliardTable.prototype.tickSimulation = function(dt) {
         }
         break;
       }
-      // TODO: Scan from north to south to determine the north pocket neighborhood
+      // Scan from north to south to determine the north pocket neighborhood
       var northPocketNeighborhood = new Set();
       for (var i = this.yBalls.length - 1; i >= 0; --i) {
         if (this.yBalls[i].position[1] > Math.min(NORTH_POCKET[1], NORTHEAST_POCKET[1]) - POCKET_RADIUS) {
@@ -1687,34 +1697,6 @@ BilliardTable.prototype.tickSimulation = function(dt) {
         }
       });
 
-      var msg = "Balls in southeast pocket neighborhood: ";
-      var foundSome = false;
-      southeastPocketNeighborhood.forEach(function(ball) {
-        msg += "  " + ball;
-        foundSome = true;
-      });
-      msg += "\n";
-      msg += "Balls in southwest pocket neighborhood: ";
-      southwestPocketNeighborhood.forEach(function(ball) {
-        msg += "  " + ball;
-        foundSome = true;
-      });
-      msg += "\n";
-      msg += "Balls in northeast pocket neighborhood: ";
-      northeastPocketNeighborhood.forEach(function(ball) {
-        msg += "  " + ball;
-        foundSome = true;
-      });
-      msg += "\n";
-      msg += "Balls in northwest pocket neighborhood: ";
-      northwestPocketNeighborhood.forEach(function(ball) {
-        msg += "  " + ball;
-        foundSome = true;
-      });
-      msg += "\n";
-      if (foundSome) {
-    //    window.alert(msg);
-      }
       break;
     default:
       throw "Unknown simulation state '" + this.simulationState + "'!";
@@ -1812,6 +1794,8 @@ BilliardTable.prototype.handleEdgeCollision = function(ball, edge) {
   var collisionNormal = normalize(cross(vec3(subtract(edge[1], edge[0])), vec3(0.0, 0.0, 1.0)).slice(0,2));
   // Compute the reflection for the velocity
   ball.velocity = reflection(ball.velocity, vec3(collisionNormal, 0.0));
+  // Apply coefficient of restitution (bounciness)
+  ball.velocity = scale(BALL_CLOTH_COEFFICIENT_OF_RESTITUTION, ball.velocity);
   // Get the ball out of the wall
   // NOTE: We could probably try harder at this approximation and account for
   // how far the ball has moved in the last dt, but this is good enough
@@ -1821,6 +1805,8 @@ BilliardTable.prototype.handleEdgeCollision = function(ball, edge) {
 BilliardTable.prototype.handleCornerCollision = function(ball, corner, collisionNormal) {
   // Compute the reflection for the velocity
   ball.velocity = reflection(ball.velocity, vec3(collisionNormal, 0.0));
+  // Apply coefficient of restitution (bounciness)
+  ball.velocity = scale(BALL_CLOTH_COEFFICIENT_OF_RESTITUTION, ball.velocity);
   // Get the ball out of the corner
   var cornerToBallCenter = subtract(vec2(ball.position), corner);
 //  ball.position = add(ball.position, vec3(scale(BALL_RADIUS-length(cornerToBallCenter), normalize(cornerToBallCenter))));
@@ -1850,6 +1836,11 @@ BilliardTable.prototype.setCameraInteractive = function() {
   this.cameraState = 'interaction';
 }
 BilliardTable.prototype.tickCameras = function(dt) {
+  // Determine the camera to draw (e.g. are we idling (rotate around the table
+  // with perspective view)? Is the user dragging the cue stick(top ortho
+  // view)?  Was the que ball just struck? Is the target ball close to a pocket
+  // (pocket view)?
+
   // Determine which camera we should be using
   switch (this.cameraState) {
     case 'interaction':
@@ -1857,11 +1848,12 @@ BilliardTable.prototype.tickCameras = function(dt) {
         case 'perspective':
           this.currentCamera = this.cameras.mainPerspective;
           // The arrow keys control the perpective camera
-          if (this.keysDepressed.leftArrow == true) {
-            this.currentCamera.rotateCounterClockwise();
-          } else if (this.keysDepressed.leftArrow == false &&
-                     this.keysDepressed.rightArrow == true) {
+          if (this.keysDepressed.leftArrow &&
+              !this.keysDepressed.rightArrow) {
             this.currentCamera.rotateClockwise();
+          } else if (this.keysDepressed.rightArrow &&
+              !this.keysDepressed.leftArrow) {
+            this.currentCamera.rotateCounterClockwise();
           } else {
           }
         break;
@@ -1904,18 +1896,13 @@ BilliardTable.prototype.mouseLeaveEvent = function(event) {
   this.mouseStart = undefined;
   this.mousePos = undefined;
   this.mouseDown = undefined;
-//  this.keysDepressed = {};  // Dead man's switch for camera controls, etc.
 }
 BilliardTable.prototype.mouseUpEvent = function(event) {
   this.mouseEnd = this.tableCoordinatesFromMouseClick(event.clientX, event.clientY);
   if (typeof this.mouseStart != 'undefined') {
-    // FIXME: I should consider the total size of the table when computing the drag vector
     this.mouseDragVector = subtract(this.mouseEnd, this.mouseStart);
-//    debug.drawLine(vec3(this.mouseStart[0], this.mouseStart[1], 0.01), vec3(this.mouseEnd[0], this.mouseEnd[1], 0.01));
+    debug.drawLine(vec3(this.mouseStart[0], this.mouseStart[1], 0.01), vec3(this.mouseEnd[0], this.mouseEnd[1], 0.01));
     this.mouseStart = undefined;
-    // TODO: Consider the game state before moving the cue ball; I should probably add a BilliardTable.startCueStick() function
-    // TODO: Scale the velocity to something that feels good
-    // TODO: Clamp the maximum velocity
   }
 }
 BilliardTable.prototype.keyDownEvent = function(event) {
@@ -1931,10 +1918,9 @@ BilliardTable.prototype.keyDownEvent = function(event) {
     // Arrow keys are used for camera controls, with most of the logic inside
     // tickCameras()
     case 0x25:  // Left Arrow
-      window.alert("left arrow!");
       this.keysDepressed.leftArrow = true;
       break;
-    case 0x25:  // Right Arrow
+    case 0x27:  // Right Arrow
       this.keysDepressed.rightArrow = true;
       break;
   }
@@ -1944,7 +1930,7 @@ BilliardTable.prototype.keyUpEvent = function(event) {
     case 0x25:  // Left Arrow
       this.keysDepressed.leftArrow = false;
       break;
-    case 0x25:  // Right Arrow
+    case 0x27:  // Right Arrow
       this.keysDepressed.rightArrow = false;
       break;
   }
@@ -2104,11 +2090,15 @@ CueStick.prototype.draw = function(gl, modelWorld, worldView, projection) {
     gl.enable(gl.BLEND);
   }
 
+  // The cue stick is always drawn on top
+  gl.depthFunc(gl.ALWAYS);
+
   // TODO: Draw a line to the cue ball (especially for perspective shots)
 
   MeshObject.prototype.draw.call(this, gl, modelWorld, worldView, projection);
 
   // Clean up
+  gl.depthFunc(gl.LESS);
   gl.disable(gl.BLEND);
 }
 
@@ -2322,7 +2312,6 @@ Camera.prototype.stopAnimation = function() {
 }
 Camera.prototype.rotateCounterClockwise = function() {
   // Have the camera rotate left for the next tick
-  window.alert("rotate counter clockwise");
   this.animation.rotateCounterClockwise = true;
 }
 Camera.prototype.rotateClockwise = function() {
@@ -2355,7 +2344,7 @@ Camera.prototype.tick = function(dt) {
       this.position = vec3(mult(vec4(this.position), transformationStack.peek()));
 
       // Look at the object
-      this.lookAt(this.animation.object);
+      this.lookAtSmooth(this.animation.object);
 
       break;
     case 'interactiveRotate':
@@ -2366,10 +2355,11 @@ Camera.prototype.tick = function(dt) {
             this.animation.maxAngularVelocity);
         this.animation.rotateCounterClockwise = false;
       } else if (this.animation.rotateClockwise) {
+        // Apply negative angular acceleration (from the user)
         this.animation.angularVelocity = Math.max(
-            // Apply negative angular acceleration (from the user)
             this.animation.angularVelocity - this.animation.angularAcceleration*dt,
             -this.animation.maxAngularVelocity);
+        this.animation.rotateClockwise = false;
       } else {
         // Apply angular acceleration due to "friction"
         if (this.animation.angularVelocity > 0.0) {
@@ -2391,7 +2381,7 @@ Camera.prototype.tick = function(dt) {
       // TODO: Compute the current position from the angular displacement
       this.position = vec3(mult(vec4(this.animation.initialPosition), quatToMatrix(quat(this.animation.axis, this.animation.angularDisplacement))));
 
-      this.lookAt(this.animation.object);
+      this.lookAtSmooth(this.animation.object);
       break;
   }
 }

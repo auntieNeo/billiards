@@ -98,10 +98,9 @@
       varying vec3 normal;
 
       uniform sampler2D textureSampler;
-      uniform float fadeAlpha;
 
       void main(void) {
-        gl_FragColor = vec4(texture2D(textureSampler, uv).rgb, fadeAlpha);
+        gl_FragColor = vec4(texture2D(textureSampler, uv).rgb, 1.0);
       }
     </script>
 
@@ -138,9 +137,13 @@
         vec4 baseColor = texture2D(textureSampler, uv);
         float distAlphaMask = baseColor.a;
         if (distAlphaMask <= 0.5) {
-          gl_FragColor = vec4(outsideColor.rgb, 1.0);
-        } else {
+          if (distance(uv, vec2(0.25, 0.5)) < 0.15) {
+            // Make the lettering black
+            gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+          }
           gl_FragColor = vec4(insideColor.rgb, 1.0);
+        } else {
+          gl_FragColor = vec4(outsideColor.rgb, 1.0);
         }
       }
     </script>
