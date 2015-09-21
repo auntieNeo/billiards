@@ -8,7 +8,7 @@ var ENABLE_DEBUG = false;
 
 // Enable signed distance field textures
 // See: <http://www.valvesoftware.com/publications/2007/SIGGRAPH2007_AlphaTestedMagnification.pdf>
-var ENABLE_SDF = true;
+var ENABLE_SDF = false;
 
 // American-style ball
 var BALL_DIAMETER = 57.15E-3;  // 57.15mm
@@ -121,7 +121,7 @@ REPLAY_TIME_AFTER_LAST_POCKET = 1.5;
 
 // Audio constants
 AUDIO_OBJECTS_PER_SOUND = 4;  // Arbitrary
-BALL_BALL_COLLISION_SOUND_MIN_VELOCITY = .1;
+BALL_BALL_COLLISION_LOUD_SOUND_MIN_VELOCITY = .8;
 
 // Globals
 var billiardTable;
@@ -331,22 +331,36 @@ var nonSdfTextures = [
 ];
 var sdfTextures = [
   "common/number_mask.png",
-//  "common/billiard_ball_0_sdf.png",
-  "common/billiard_ball_1_sdf.png",
-  "common/billiard_ball_2_sdf.png",
-  "common/billiard_ball_3_sdf.png",
-  "common/billiard_ball_4_sdf.png",
-  "common/billiard_ball_5_sdf.png",
-  "common/billiard_ball_6_sdf.png",
-  "common/billiard_ball_7_sdf.png",
-  "common/billiard_ball_8_sdf.png",
-  "common/billiard_ball_9_sdf.png",
-  "common/billiard_ball_10_sdf.png",
-  "common/billiard_ball_11_sdf.png",
-  "common/billiard_ball_12_sdf.png",
-  "common/billiard_ball_13_sdf.png",
-  "common/billiard_ball_14_sdf.png",
-  "common/billiard_ball_15_sdf.png"
+  "common/billiard_ball_1_sdf_near.png",
+  "common/billiard_ball_1_sdf_far.png",
+  "common/billiard_ball_2_sdf_near.png",
+  "common/billiard_ball_2_sdf_far.png",
+  "common/billiard_ball_3_sdf_near.png",
+  "common/billiard_ball_3_sdf_far.png",
+  "common/billiard_ball_4_sdf_near.png",
+  "common/billiard_ball_4_sdf_far.png",
+  "common/billiard_ball_5_sdf_near.png",
+  "common/billiard_ball_5_sdf_far.png",
+  "common/billiard_ball_6_sdf_near.png",
+  "common/billiard_ball_6_sdf_far.png",
+  "common/billiard_ball_7_sdf_near.png",
+  "common/billiard_ball_7_sdf_far.png",
+  "common/billiard_ball_8_sdf_near.png",
+  "common/billiard_ball_8_sdf_far.png",
+  "common/billiard_ball_9_sdf_near.png",
+  "common/billiard_ball_9_sdf_far.png",
+  "common/billiard_ball_10_sdf_near.png",
+  "common/billiard_ball_10_sdf_far.png",
+  "common/billiard_ball_11_sdf_near.png",
+  "common/billiard_ball_11_sdf_far.png",
+  "common/billiard_ball_12_sdf_near.png",
+  "common/billiard_ball_12_sdf_far.png",
+  "common/billiard_ball_13_sdf_near.png",
+  "common/billiard_ball_13_sdf_far.png",
+  "common/billiard_ball_14_sdf_near.png",
+  "common/billiard_ball_14_sdf_far.png",
+  "common/billiard_ball_15_sdf_near.png",
+  "common/billiard_ball_15_sdf_far.png"
 ];
 var textureAssets = [
   "common/billiard_table_simple_colors.png",
@@ -888,10 +902,10 @@ var BilliardBall = function(number, initialPosition) {
   this.outsideColor = BALL_WHITE;
 
   // Determine the ball texture, color, and shader to use
-  var textureFile;
   var shaderProgram;
   if (ENABLE_SDF) {
-    textureFile = "common/billiard_ball_" + number + "_sdf.png";
+    this.nearTextureFile = "common/billiard_ball_" + number + "_sdf_near.png";
+    this.farTextureFile = "common/billiard_ball_" + number + "_sdf_far.png";
     shaderProgram = "billiardball-sdf";
     switch (number) {
       case 0:
@@ -959,14 +973,19 @@ var BilliardBall = function(number, initialPosition) {
         this.insideColor = BALL_MAROON;
         break;
     }
-  } else {
+
+    // Iherit from mesh object
+    MeshObject.call(this,
+        "common/unit_billiard_ball.obj", null, shaderProgram);
+  } else {  // Non-sdf mode
     textureFile = "common/billiard_ball_" + number + ".png";
     shaderProgram = "billiardball";
+
+    // Iherit from mesh object
+    MeshObject.call(this,
+        "common/unit_billiard_ball.obj", textureFile, shaderProgram);
   }
 
-  // Iherit from mesh object
-  MeshObject.call(this,
-      "common/unit_billiard_ball.obj", textureFile, shaderProgram);
 
   // Initial physical properties
   this.velocity = vec3(0.0, 0.0, 0.0);
@@ -1149,6 +1168,37 @@ BilliardBall.prototype.project = function(normal) {
   // circle is at most one ball radius away from the center point.
   return vec2(projected[0] - BALL_RADIUS, projected[0] + BALL_RADIUS);
 }
+BilliardBall.prototype.bindTextures = function(gl) {
+  if (ENABLE_SDF) {
+    // We need two textures for SDF; one for shots close to the balls, and one
+    // for shots far away. For far away shots, the frequency of details in the
+    // ball numbers is very high. For these shots we need to set the spread of
+    // distance values very high, lest our sharp number edges be interpolated
+    // into nothing. On the flip side, setting the spread very high increases
+    // banding in the alpha channel (just look at the far sdf textures) which
+    // severely reduces the accuracy of edges on close shots. This is due to
+    // the limited precision of the 8-bit alpha channel.
+    //
+    // So the pratical solution to have the best of both worlds is to include
+    // both textures, one with a high spread (the far texture), and one with a
+    // low spread (the near texture). We need to bind these textures ourselves,
+    // since the generic MeshObject prototype won't do that for us.
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.nearTexture);
+    gl.uniform1i(this.shaderProgram.uniforms.nearTexture, 0);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, this.farTexture);
+    gl.uniform1i(this.shaderProgram.uniforms.farTexture, 1);
+
+    // Pass a mask for the ball numbers so that we can draw them black
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, assets["common/number_mask.png"]);
+    gl.uniform1i(this.shaderProgram.uniforms.numberMask, 2);
+  } else {
+    // Use the default behavior when we're not using SDF
+    MeshObject.prototype.bindTextures.call(this, gl);
+  }
+}
 BilliardBall.prototype.draw = function(gl, modelWorld, worldView, projection) {
   // Don't bother drawing the ball while it's not being used
   if (this.state == 'idle' ||
@@ -1166,10 +1216,6 @@ BilliardBall.prototype.draw = function(gl, modelWorld, worldView, projection) {
     gl.uniform3f(this.shaderProgram.uniforms.outsideColor,
         this.outsideColor[0], this.outsideColor[1], this.outsideColor[2]);
 
-    // Pass a mask for the ball numbers so that we can draw them black
-    gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, assets["common/number_mask.png"]);
-    gl.uniform1i(this.shaderProgram.uniforms.numberMask, 1);
   }
 
   MeshObject.prototype.draw.call(this, gl, modelWorld, worldView, projection);
@@ -1704,7 +1750,7 @@ BilliardTable.prototype.tickSimulation = function(dt) {
               var jDisplacement = collisionDisplacement(this.yBalls[j].position, this.yBalls[i].position, BALL_RADIUS);
               this.yBalls[i].position = add(this.yBalls[i].position, scale(1.01, iDisplacement));
               this.yBalls[j].position = add(this.yBalls[j].position, scale(1.01, jDisplacement));
-              if (length(jVelocity) > BALL_BALL_COLLISION_SOUND_MIN_VELOCITY) {
+              if (length(subtract(jVelocity, iVelocity)) > BALL_BALL_COLLISION_LOUD_SOUND_MIN_VELOCITY) {
                 // Play the sound of two balls colliding for balls of sufficient velocity
                 audioPool.playSound("common/108615__juskiddink__billiard-balls-single-hit-dry.wav");
               }

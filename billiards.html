@@ -46,7 +46,7 @@
     <script id="billiardtable-frag" type="x-shader/x-fragment">
       precision mediump float;
 
-      varying highp vec2 uv;  // FIXME: rename this to textureCoord
+      varying highp vec2 uv;
       varying vec3 normal;
 
       uniform sampler2D textureSampler;
@@ -94,7 +94,7 @@
     <script id="billiardball-frag" type="x-shader/x-fragment">
       precision mediump float;
 
-      varying highp vec2 uv;  // FIXME: rename this to textureCoord
+      varying highp vec2 uv;
       varying vec3 normal;
 
       uniform sampler2D textureSampler;
@@ -126,16 +126,24 @@
       // See here: <http://www.valvesoftware.com/publications/2007/SIGGRAPH2007_AlphaTestedMagnification.pdf>
       precision mediump float;
 
-      varying highp vec2 uv;  // FIXME: rename this to textureCoord
+      varying highp vec2 uv;
       varying vec3 normal;
 
-      uniform sampler2D textureSampler;
+      uniform sampler2D nearTexture;
+      uniform sampler2D farTexture;
       uniform sampler2D numberMask;
       uniform vec3 outsideColor;
       uniform vec3 insideColor;
 
       void main(void) {
-        vec4 baseColor = texture2D(textureSampler, uv);
+        vec4 baseColor;
+        if (gl_FragCoord.z < 0.5) {  // Arbitrary, 0.5 meters
+          // Use our far texture for balls far away
+          baseColor = texture2D(farTexture, uv);
+        } else {
+          // Use our  texture for balls close up
+          baseColor = texture2D(nearTexture, uv);
+        }
         float distAlphaMask = baseColor.a;
         vec4 numberMask = texture2D(numberMask, uv);
         if (distAlphaMask <= 0.5) {
@@ -171,7 +179,7 @@
     <script id="cuestick-frag" type="x-shader/x-fragment">
       precision mediump float;
 
-      varying highp vec2 uv;  // FIXME: rename this to textureCoord
+      varying highp vec2 uv;
       varying vec3 normal;
 
       uniform sampler2D textureSampler;
