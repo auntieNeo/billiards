@@ -4,11 +4,11 @@
 var gl;
 
 // Enable drawing debugging lines (not optimized; will probably impact performance)
-var ENABLE_DEBUG = false
+var ENABLE_DEBUG = false;
 
 // Enable signed distance field textures
 // See: <http://www.valvesoftware.com/publications/2007/SIGGRAPH2007_AlphaTestedMagnification.pdf>
-var ENABLE_SDF = false
+var ENABLE_SDF = true;
 
 // American-style ball
 var BALL_DIAMETER = 57.15E-3;  // 57.15mm
@@ -117,6 +117,16 @@ BALL_BLACK = scale(1.0/255.0, vec3(26, 16, 13));
 
 // Replay constants
 REPLAY_TIME_BEFORE_HIT = 1.5;
+REPLAY_TIME_AFTER_LAST_POCKET = 1.5;
+
+// Audio constants
+AUDIO_OBJECTS_PER_SOUND = 4;  // Arbitrary
+BALL_BALL_COLLISION_SOUND_MIN_VELOCITY = .1;
+
+// Globals
+var billiardTable;
+var audioPool;
+var debug;
 
 function animate(dt) {
   // Simulate physics, game state, and cameras in BilliardTable
@@ -175,11 +185,6 @@ function tick() {
     dt = 0.0;
   }
 }
-
-// TODO: Put these inside some sort of game state object
-var billiardTable;
-var debug;
-
 
 //------------------------------------------------------------
 // render()
@@ -284,6 +289,7 @@ window.onload = function init() {
   // (runs in an asynchronous loop before
   // starting the game loop)
   //----------------------------------------
+  audioPool = new AudioPool();
   loadAssets();
 };
 
@@ -348,6 +354,9 @@ var textureAssets = [
   "common/cue_stick.png",
   "common/test.png"
 ];
+var soundAssets = [
+  "common/108615__juskiddink__billiard-balls-single-hit-dry.wav"
+];
 if (ENABLE_SDF) {
   textureAssets = textureAssets.concat(sdfTextures);
 } else {
@@ -393,9 +402,15 @@ function loadAssets() {
         assetArray = shaderAssets;
       } else {
         i -= shaderAssets.length;
-        // All assets have been loaded; proceed to the game loop
-        startGame();
-        return;
+        if (i < soundAssets.length) {
+          message = "Loading sounds...";
+          assetArray = soundAssets;
+        } else {
+          i -= soundAssets.length;
+          // All assets have been loaded; proceed to the game loop
+          startGame();
+          return;
+        }
       }
     }
   }
@@ -433,6 +448,11 @@ function loadAssets() {
       };
       textureImage.src = imageFile;
     }
+  } else if (assetArray === soundAssets) {
+    // Load sound files into our global audio pool
+    var soundFile = assetArray[i];
+    audioPool.loadSoundFile(soundFile);
+    assetIndex += 1;
   } else {
     // Load all other assets via asynchronous Ajax
     var assetFile = assetArray[i];
@@ -1502,6 +1522,7 @@ BilliardTable.prototype.tick = function(dt) {
       // TODO: We need to animate the cue stick before starting the simulation
       // The replay simulates a lot of physics, but no game logic is advanced
       // TODO: Check for times of interest and save the state at those times
+      // TODO: Stop the initial replay some short time after the last ball has been pocketed
       break;
     case 'replay':
     case 'postReplay':
@@ -1683,6 +1704,10 @@ BilliardTable.prototype.tickSimulation = function(dt) {
               var jDisplacement = collisionDisplacement(this.yBalls[j].position, this.yBalls[i].position, BALL_RADIUS);
               this.yBalls[i].position = add(this.yBalls[i].position, scale(1.01, iDisplacement));
               this.yBalls[j].position = add(this.yBalls[j].position, scale(1.01, jDisplacement));
+              if (length(jVelocity) > BALL_BALL_COLLISION_SOUND_MIN_VELOCITY) {
+                // Play the sound of two balls colliding for balls of sufficient velocity
+                audioPool.playSound("common/108615__juskiddink__billiard-balls-single-hit-dry.wav");
+              }
             }
           }
         }
@@ -1916,6 +1941,7 @@ BilliardTable.prototype.handleEdgeCollision = function(ball, edge) {
   // how far the ball has moved in the last dt, but this is good enough
   // good enough
   ball.position = add(ball.position, scale(MAX_DT, ball.velocity));
+  // TODO: Play an appropriate sound
   if (typeof ball.firstHitTime == 'undefined') {
     // We're the first hit; store the time
     ball.firstHitTime = this.simulationElapsedTime;
@@ -2926,6 +2952,36 @@ function lineCircleIntersection(line, center, radius)
 }
 // Poor man's unit tests
 // window.alert("lineCircleIntersection test: " + printVector(lineCircleIntersection([[-1.0, 0.0], [0.5, 0.0]], [0.5, 0.0], 0.5)));
+
+var AudioPool = function() {
+  this.pool = new Map();
+}
+AudioPool.prototype.loadSoundFile = function(soundFile) {
+  if (!this.pool.has(soundFile)) {
+    var soundPool = [];
+    // Fill the pool of Audio objects for this sound file
+    for (var i = 0; i < AUDIO_OBJECTS_PER_SOUND; ++i) {
+      soundPool.push(new Audio(soundFile));
+    }
+    this.pool.set(soundFile, soundPool);
+  }
+}
+AudioPool.prototype.playSound = function(soundFile) {
+  // TODO: Prevent the same sound playing on top of itself
+
+  // Check for available Audio objects in the pool for this sound
+  var soundPool = this.pool.get(soundFile);
+  if (soundPool.length > 0) {
+    // Play the sound and remove the Audio object from the sound pool
+    var audioObject = soundPool.pop();
+    audioObject.play();
+    audioObject.onended = function() {
+      // Add the Audio object back to the pool when we're done with it
+      soundPool.push(this);
+    };
+  }
+}
+
 
 //------------------------------------------------------------
 // Prototype for tool to draw shapes for debugging graphics
