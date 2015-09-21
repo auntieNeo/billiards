@@ -130,18 +130,21 @@
       varying vec3 normal;
 
       uniform sampler2D textureSampler;
+      uniform sampler2D numberMask;
       uniform vec3 outsideColor;
       uniform vec3 insideColor;
 
       void main(void) {
         vec4 baseColor = texture2D(textureSampler, uv);
         float distAlphaMask = baseColor.a;
+        vec4 numberMask = texture2D(numberMask, uv);
         if (distAlphaMask <= 0.5) {
-          if (distance(uv, vec2(0.25, 0.5)) < 0.15) {
+          if (numberMask.a > 0.9) {
             // Make the lettering black
             gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+          } else {
+            gl_FragColor = vec4(insideColor.rgb, 1.0);
           }
-          gl_FragColor = vec4(insideColor.rgb, 1.0);
         } else {
           gl_FragColor = vec4(outsideColor.rgb, 1.0);
         }

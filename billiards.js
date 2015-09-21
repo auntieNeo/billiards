@@ -8,7 +8,7 @@ var ENABLE_DEBUG = false
 
 // Enable signed distance field textures
 // See: <http://www.valvesoftware.com/publications/2007/SIGGRAPH2007_AlphaTestedMagnification.pdf>
-var ENABLE_SDF = true
+var ENABLE_SDF = false
 
 // American-style ball
 var BALL_DIAMETER = 57.15E-3;  // 57.15mm
@@ -97,11 +97,11 @@ MAIN_CAMERA_MAX_ANGULAR_VELOCITY = Math.PI/1.0;
 MAIN_ORTHO_CAMERA_POSITION = vec3(0.0, 0.0, 1.0);
 MAIN_ORTHO_CAMERA_ORIENTATION = vec4(0.0, 0.0, 0.0, 1.0);
 
-FRONT_SIDE_POCKET_CAMERA_POSITION = vec3(0.0, 0.57724, 0.055582);
-FRONT_SIDE_POCKET_CAMERA_ORIENTATION = quat(-0.001, -0.510, -0.860, -0.002);
-FRONT_SIDE_POCKET_CAMERA_FOV = 100/2;  // Degrees
-FRONT_SIDE_POCKET_CAMERA_NEAR = .01;
-FRONT_SIDE_POCKET_CAMERA_FAR = 100;
+SOUTH_POCKET_CAMERA_POSITION = vec3(0.0, 0.57724, 0.055582);
+SOUTH_POCKET_CAMERA_ORIENTATION = quat(-0.001, -0.510, -0.860, -0.002);
+SOUTH_POCKET_CAMERA_FOV = 100/2;  // Degrees
+SOUTH_POCKET_CAMERA_NEAR = .01;
+SOUTH_POCKET_CAMERA_FAR = 100;
 
 // Ball colors (passed to the shader)
 // Based on the color of bakelite billiard balls
@@ -114,6 +114,9 @@ BALL_ORANGE = scale(1.0/255.0, vec3(254, 97, 49));
 BALL_GREEN = scale(1.0/255.0, vec3(32, 99, 58));
 BALL_MAROON = scale(1.0/255.0, vec3(84, 62, 44));
 BALL_BLACK = scale(1.0/255.0, vec3(26, 16, 13));
+
+// Replay constants
+REPLAY_TIME_BEFORE_HIT = 1.5;
 
 function animate(dt) {
   // Simulate physics, game state, and cameras in BilliardTable
@@ -327,7 +330,7 @@ var sdfTextures = [
   "common/billiard_ball_2_sdf.png",
   "common/billiard_ball_3_sdf.png",
   "common/billiard_ball_4_sdf.png",
-/*  "common/billiard_ball_5_sdf.png",
+  "common/billiard_ball_5_sdf.png",
   "common/billiard_ball_6_sdf.png",
   "common/billiard_ball_7_sdf.png",
   "common/billiard_ball_8_sdf.png",
@@ -337,7 +340,7 @@ var sdfTextures = [
   "common/billiard_ball_12_sdf.png",
   "common/billiard_ball_13_sdf.png",
   "common/billiard_ball_14_sdf.png",
-  "common/billiard_ball_15_sdf.png"  */
+  "common/billiard_ball_15_sdf.png"
 ];
 var textureAssets = [
   "common/billiard_table_simple_colors.png",
@@ -358,7 +361,7 @@ var shaderAssets = [ { name: "billiardtable", vert: "billiardtable-vert", frag: 
                        uniforms: [ "modelViewMatrix", "projectionMatrix" ] },
                      { name: "billiardball-sdf", vert: "billiardball-sdf-vert", frag: "billiardball-sdf-frag",
                        attributes: [ "vertexPosition", "vertexUV", "vertexNormal" ],
-                       uniforms: [ "modelViewMatrix", "projectionMatrix", "insideColor", "outsideColor" ] },
+                       uniforms: [ "modelViewMatrix", "projectionMatrix", "textureSampler", "numberMask", "insideColor", "outsideColor" ] },
                      { name: "cuestick", vert: "cuestick-vert", frag: "cuestick-frag",
                        attributes: [ "vertexPosition", "vertexUV", "vertexNormal" ],
                        uniforms: [ "modelViewMatrix", "projectionMatrix", "fadeAlpha" ] },
@@ -745,7 +748,6 @@ SceneObject.prototype.setParent = function(object) {
 }
 SceneObject.prototype.getWorldPosition = function(object) {
   if (typeof this.parentObject != 'undefined') {
-    console.log("this.position: " + this.position + "this.parentObject.getWorldPosition()" + this.parentObject.getWorldPosition());
     return vec3(mult(vec4(this.position), translate(this.parentObject.getWorldPosition())));
   }
   return this.position;
@@ -961,6 +963,12 @@ BilliardBall.prototype.putInPlay = function(position) {
   } else {
     this.position = vec3(position[0], position[1], BALL_RADIUS);
   }
+  // Remove all of the properties related to pocketed status
+  this.pocket = undefined;
+  this.pocketName = undefined;
+  this.pocketTime = undefined;
+  this.firstHitTime = undefined;
+  // Notify our state machine
   this.state = 'startInPlay';
 }
 BilliardBall.prototype.isInPlay = function() {
@@ -969,9 +977,30 @@ BilliardBall.prototype.isInPlay = function() {
     return true;
   }
 }
-BilliardBall.prototype.setPocket = function(pocket) {
-  this.pocket = pocket;
+BilliardBall.prototype.setPocket = function(pocketName) {
+  this.pocketName = pocketName;
+  this.pocket = pocketFromName(pocketName);
   this.state = 'startPocketed';
+}
+BilliardBall.prototype.saveState = function() {
+  var state = {};
+  state.state = this.state;
+  state.timeElapsedInPlay = this.timeElapsedInPlay;
+  state.pocketName = this.pocketName;
+  state.pocket = this.pocket;
+  state.position = this.position.slice();
+  state.orientation = this.orientation.slice();
+  state.velocity = this.velocity.slice();
+  return state;
+}
+BilliardBall.prototype.restoreState = function(state) {
+  this.state = state.state;
+  this.timeElapsedInPlay = state.timeElapsedInPlay;
+  this.pocketName = state.pocketName;
+  this.pocket = state.pocket;
+  this.position = state.position.slice();
+  this.orientation = state.orientation.slice();
+  this.velocity = state.velocity.slice();
 }
 BilliardBall.prototype.tick = function(dt) {
   switch (this.state) {
@@ -1116,6 +1145,11 @@ BilliardBall.prototype.draw = function(gl, modelWorld, worldView, projection) {
         this.insideColor[0], this.insideColor[1], this.insideColor[2]);
     gl.uniform3f(this.shaderProgram.uniforms.outsideColor,
         this.outsideColor[0], this.outsideColor[1], this.outsideColor[2]);
+
+    // Pass a mask for the ball numbers so that we can draw them black
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, assets["common/number_mask.png"]);
+    gl.uniform1i(this.shaderProgram.uniforms.numberMask, 1);
   }
 
   MeshObject.prototype.draw.call(this, gl, modelWorld, worldView, projection);
@@ -1182,13 +1216,13 @@ var BilliardTable = function(gamemode, position, orientation) {
               far: MAIN_CAMERA_FAR },
             MAIN_ORTHO_CAMERA_POSITION,
             MAIN_ORTHO_CAMERA_ORIENTATION),
-    frontSidePocket: new Camera(
+    southPocket: new Camera(
             { type: 'perspective',
-              fov: FRONT_SIDE_POCKET_CAMERA_FOV,
-              near: FRONT_SIDE_POCKET_CAMERA_NEAR,
-              far: FRONT_SIDE_POCKET_CAMERA_FAR },
-            FRONT_SIDE_POCKET_CAMERA_POSITION,
-            FRONT_SIDE_POCKET_CAMERA_ORIENTATION)
+              fov: SOUTH_POCKET_CAMERA_FOV,
+              near: SOUTH_POCKET_CAMERA_NEAR,
+              far: SOUTH_POCKET_CAMERA_FAR },
+            SOUTH_POCKET_CAMERA_POSITION,
+            SOUTH_POCKET_CAMERA_ORIENTATION)
   }
   this.cameras.mainPerspective.interactiveRotate(
       this, vec3(0.0, 0.0, 1.0),
@@ -1243,17 +1277,11 @@ BilliardTable.prototype.saveState = function() {
   var state = {};
   // TODO: Save the state of the cue stick (presumably either at rest or just
   // before striking the cue ball)
-  // Save the state (initial positions and pocketed status) of all of the
-  // balls)
+  // Save the state (initial positions, velocity, state machine status, etc.)
+  // of all of the balls)
   state.balls = [];
   for (var i = 0; i < this.balls.length; ++i) {
-    var ball = {
-      position: this.balls[i].position.slice(),
-      orientation: this.balls[i].orientation.slice(),
-      velocity: this.balls[i].velocity.slice()
-      // TODO: Also store pocketed status
-    };
-    state.balls.push(ball);
+    state.balls.push(this.balls[i].saveState());
   }
 
   return state;
@@ -1262,12 +1290,17 @@ BilliardTable.prototype.restoreState = function(state) {
   // This method perfoms the reverse operation of saveState
 
   // TODO: Restore the state of the cue stick
-  // Save the state (initial positions and pocketed status) of all of the
-  // balls)
+
+  // Restore the state of each of our balls
+  this.xBalls = [];
+  this.yBalls = [];
   for (var i = 0; i < state.balls.length; ++i) {
-    this.balls[i].position = state.balls[i].position.slice();
-    this.balls[i].orientation = state.balls[i].orientation.slice();
-    this.balls[i].velocity = state.balls[i].velocity.slice();
+    this.balls[i].restoreState(state.balls[i]);
+    if (this.balls[i].isInPlay()) {
+      // Restore the state of the broad-phase collision structures
+      this.xBalls.push(this.balls[i]);
+      this.yBalls.push(this.balls[i]);
+    }
   }
 }
 BilliardTable.prototype.drawChildren = function(gl, modelWorld, worldView, projection) {
@@ -1296,6 +1329,7 @@ BilliardTable.prototype.tick = function(dt) {
 
   switch (this.state) {
     case 'start':
+      this.replays = [];
     case 'placeBalls':
       this.setCameraInteractive();
       this.xBalls = [];
@@ -1378,6 +1412,14 @@ BilliardTable.prototype.tick = function(dt) {
     case 'cueStickCollision':
       this.balls[0].velocity = add(this.balls[0].velocity, this.cueStick.collisionVelocity);
       // TODO: Save a replay
+    case 'preSimulation':
+      // Reset all of the ball first hit times
+      for (var i = 0; i < this.balls.length; ++i) {
+        this.balls[i].firstHitTime = undefined;
+      }
+      // Save the initial simulation state for our replays
+      this.initialSimulationState = this.saveState();
+      // Start simulating the physics and animating the balls
       this.startSimulation();
     case 'simulation':
       this.state = 'simulation';
@@ -1397,17 +1439,76 @@ BilliardTable.prototype.tick = function(dt) {
       }
     case 'postSimulation':
       this.state = 'postSimulation';
-      // TODO: Play replays (if we have any pocketed balls)
       // TODO: Look for any new pocketed balls
       var cueBallPocketed = false;
+      this.replayQueue = new Map();
       for (var i = 0; i < this.pocketedBalls.length; ++i) {
         if (this.pocketedBalls[i].ball == 0) {
           cueBallPocketed = true;
+          // Remove the cue ball from the pocket
+          this.pocketedBalls.splice(i, 1);
+        }
+        var ball = this.balls[this.pocketedBalls[i].ball];
+        var pocketName = ball.pocketName;
+        if (this.replayQueue.has(pocketName)) {
+          // At least one other ball has been pocketed in the same pocket; we
+          // must reconcile their pocket times to determine which ball we
+          // should follow on camera
+          this.replayQueue.get(pocketName).balls.push(ball.number);
+          if (ball.pocketTime < this.replayQueue.get(pocketName).pocketTime) {
+            // This ball was pocketed sooner; it's a safe bet that we can at
+            // least catch all of the balls on camera by following this ball
+            // to the pocket first
+            this.replayQueue.get(pocketName).pocketTime = ball.pocketTime;
+            this.replayQueue.get(pocketName).timeOfInterest = ball.firstHitTime - REPLAY_TIME_BEFORE_HIT;
+            this.replayQueue.get(pocketName).ballOfInterest = ball.number;
+          }
+        } else {
+          // Add pockets that have balls in them to the replay queue, along with
+          // the pocketed balls, their pocket times, and their first hit time
+          this.replayQueue.set(pocketName, {
+              pocket: ball.pocketName,
+              pocketTime: ball.pocketTime,
+              timeOfInterest: ball.firstHitTime - REPLAY_TIME_BEFORE_HIT,
+              ballOfInterest: ball.number,
+              balls: [ ball.number ]
+          });
         }
         // TODO: Some game logic?
       }
+      // Gather the times of interest and sort them
+      this.timesOfInterest = [];
+      billiardTable = this;
+      this.replayQueue.forEach(function(item) {
+        billiardTable.timesOfInterest.push(item);
+        console.log("Following ball " + item.ballOfInterest + " to pocket " + item.pocket + " starting at time " + item.timeOfInterest + ".");
+      });
+      this.timesOfInterest.sort(function(a, b) {
+        return a - b;
+      });
+    case 'startReplay':
+      // Tell the cameras to watch the replay action
+      this.setCameraReplay();
+      // Play replays (if we have any pocketed balls)
+      this.nextTurn = this.saveState();  // Remember the present state while playing replays
+      // We start with the replay from the beginning; now that we know the
+      // times of interest (pocket times, hit times, etc.), we can save more
+      // replay states by running through the entire simulation
+      this.restoreState(this.initialSimulationState);
+      // Begin the simulation in replay mode
+      this.startReplay();
+    case 'initialReplay':
+      this.state = 'initialReplay';
+      // TODO: We need to animate the cue stick before starting the simulation
+      // The replay simulates a lot of physics, but no game logic is advanced
+      // TODO: Check for times of interest and save the state at those times
+      break;
+    case 'replay':
+    case 'postReplay':
+      // Restore the state from before playing the replays (and pray it works)
+      this.restoreState(this.nextTurn);
+    case 'nextTurnSetup':
       // TODO: Determine what turn is next (i.e. cue shot, cue ball drop, or break shot)
-      // TODO: Start the next turn
       if (cueBallPocketed) {
         // The cue ball was pocketed; we need to drop it somewhere
         this.balls[0].putInPlay(vec2(0.0, 0.0));
@@ -1482,6 +1583,9 @@ BilliardTable.prototype.checkDropCueBall = function(ball, position, north, south
 BilliardTable.prototype.startSimulation = function() {
   this.simulationState = 'startSimulation';
 }
+BilliardTable.prototype.startReplay = function() {
+  this.simulationState = 'startReplay';
+}
 BilliardTable.prototype.stopSimulation = function() {
   this.simulationState = 'stopSimulation';
 }
@@ -1492,6 +1596,12 @@ BilliardTable.prototype.tickSimulation = function(dt) {
       break;
     case 'startSimulation':
       this.simulationElapsedTime = -dt;  // -dt + dt = 0.0
+      this.isReplay = false;
+    case 'startReplay':
+      if (this.simulationState == 'startReplay') {
+        this.simulationElapsedTime = -dt;  // -dt + dt = 0.0
+        this.isReplay = true;
+      }
     case 'running':
       this.simulationState = 'running';
       this.simulationElapsedTime += dt;
@@ -1550,7 +1660,16 @@ BilliardTable.prototype.tickSimulation = function(dt) {
           if (typeof xCollisions[lesserNumber + greaterNumber * this.balls.length] != 'undefined') {
             // Exact collision detection
             if (length(subtract(this.yBalls[i].position, this.yBalls[j].position)) < BALL_DIAMETER) {
-              // Reflection of balls
+              // We have a ball-ball collision
+              if (typeof this.yBalls[i].firstHitTime == 'undefined') {
+                // We're the first hit; store the time
+                this.yBalls[i].firstHitTime = this.simulationElapsedTime;
+              }
+              if (typeof this.yBalls[j].firstHitTime == 'undefined') {
+                // We're the first hit; store the time
+                this.yBalls[j].firstHitTime = this.simulationElapsedTime;
+              }
+              // Compute the reflection (perfectly elastic collision)
               var iVelocity = elasticCollisionReflection(
                   this.yBalls[i].velocity, this.yBalls[j].velocity,
                   this.yBalls[i].position, this.yBalls[j].position);
@@ -1607,7 +1726,6 @@ BilliardTable.prototype.tickSimulation = function(dt) {
       for (var i = this.xBalls.length - 1; i >= 0; --i) {
         if (this.xBalls[i].position[0] > SOUTHEAST_POCKET[0] - POCKET_RADIUS) {
           eastPocketNeighborhood.add(this.xBalls[i].number);
-          console.log("Found ball " + this.xBalls[i].number + " in east pocket neighborhood");
           continue;
         }
         break;
@@ -1617,7 +1735,6 @@ BilliardTable.prototype.tickSimulation = function(dt) {
       for (var i = 0; i < this.xBalls.length; ++i) {
         if (this.xBalls[i].position[0] < SOUTHWEST_POCKET[0] + POCKET_RADIUS) {
           westPocketNeighborhood.add(this.xBalls[i].number);
-          console.log("Found ball " + this.xBalls[i].number + " in west pocket neighborhood");
           continue;
         }
         break;
@@ -1627,7 +1744,6 @@ BilliardTable.prototype.tickSimulation = function(dt) {
       for (var i = 0; i < this.yBalls.length; ++i) {
         if (this.yBalls[i].position[1] < Math.max(SOUTH_POCKET[1], SOUTHEAST_POCKET[1]) + POCKET_RADIUS) {
           southPocketNeighborhood.add(this.yBalls[i].number);
-          console.log("Found ball " + this.yBalls[i].number + " in south pocket neighborhood");
           continue;
         }
         break;
@@ -1637,7 +1753,6 @@ BilliardTable.prototype.tickSimulation = function(dt) {
       for (var i = this.yBalls.length - 1; i >= 0; --i) {
         if (this.yBalls[i].position[1] > Math.min(NORTH_POCKET[1], NORTHEAST_POCKET[1]) - POCKET_RADIUS) {
           northPocketNeighborhood.add(this.yBalls[i].number);
-          console.log("Found ball " + this.yBalls[i].number + " in north pocket neighborhood");
           continue;
         }
         break;
@@ -1663,37 +1778,37 @@ BilliardTable.prototype.tickSimulation = function(dt) {
       southeastPocketNeighborhood.forEach(function(ball) {
         if (length(subtract(SOUTHEAST_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
           window.alert("Pocketed ball in southeast pocket: " + ball);
-          billiardTable.pocketBall(ball, SOUTHEAST_POCKET);
+          billiardTable.pocketBall(ball, "SOUTHEAST_POCKET");
         }
       });
       southwestPocketNeighborhood.forEach(function(ball) {
         if (length(subtract(SOUTHWEST_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
           window.alert("Pocketed ball in southwest pocket: " + ball);
-          billiardTable.pocketBall(ball, SOUTHWEST_POCKET);
+          billiardTable.pocketBall(ball, "SOUTHWEST_POCKET");
         }
       });
       northeastPocketNeighborhood.forEach(function(ball) {
         if (length(subtract(NORTHEAST_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
           window.alert("Pocketed ball in northeast pocket: " + ball);
-          billiardTable.pocketBall(ball, NORTHEAST_POCKET);
+          billiardTable.pocketBall(ball, "NORTHEAST_POCKET");
         }
       });
       northwestPocketNeighborhood.forEach(function(ball) {
         if (length(subtract(NORTHWEST_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
           window.alert("Pocketed ball in northwest pocket: " + ball);
-          billiardTable.pocketBall(ball, NORTHWEST_POCKET);
+          billiardTable.pocketBall(ball, "NORTHWEST_POCKET");
         }
       });
       southPocketNeighborhood.forEach(function(ball) {
         if (length(subtract(SOUTH_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
           window.alert("Pocketed ball in south pocket: " + ball);
-          billiardTable.pocketBall(ball, SOUTH_POCKET);
+          billiardTable.pocketBall(ball, "SOUTH_POCKET");
         }
       });
       northPocketNeighborhood.forEach(function(ball) {
         if (length(subtract(NORTH_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
           window.alert("Pocketed ball in north pocket: " + ball);
-          billiardTable.pocketBall(ball, NORTH_POCKET);
+          billiardTable.pocketBall(ball, "NORTH_POCKET");
         }
       });
 
@@ -1801,6 +1916,10 @@ BilliardTable.prototype.handleEdgeCollision = function(ball, edge) {
   // how far the ball has moved in the last dt, but this is good enough
   // good enough
   ball.position = add(ball.position, scale(MAX_DT, ball.velocity));
+  if (typeof ball.firstHitTime == 'undefined') {
+    // We're the first hit; store the time
+    ball.firstHitTime = this.simulationElapsedTime;
+  }
 }
 BilliardTable.prototype.handleCornerCollision = function(ball, corner, collisionNormal) {
   // Compute the reflection for the velocity
@@ -1810,8 +1929,12 @@ BilliardTable.prototype.handleCornerCollision = function(ball, corner, collision
   // Get the ball out of the corner
   var cornerToBallCenter = subtract(vec2(ball.position), corner);
 //  ball.position = add(ball.position, vec3(scale(BALL_RADIUS-length(cornerToBallCenter), normalize(cornerToBallCenter))));
+  if (typeof ball.firstHitTime == 'undefined') {
+    // We're the first hit; store the time
+    ball.firstHitTime = this.simulationElapsedTime;
+  }
 }
-BilliardTable.prototype.pocketBall = function(ballNumber, pocket) {
+BilliardTable.prototype.pocketBall = function(ballNumber, pocketName) {
   // Remove the ball from the broad-phase collision detection lists
   for (var i = 0; i < this.xBalls.length; ++i) {
     if (this.xBalls[i].number == ballNumber) {
@@ -1826,7 +1949,9 @@ BilliardTable.prototype.pocketBall = function(ballNumber, pocket) {
     }
   }
   // Set the pocket for the ball (and notify its state machine)
-  this.balls[ballNumber].setPocket(pocket);
+  this.balls[ballNumber].setPocket(pocketName);
+  // Note the time we pocketed the ball
+  this.balls.pocketTime = this.simulationElapsedTime;
   // Note the simulation time that the ball was pocketed, so we can make a nice
   // replay
   this.pocketedBalls.push({ ball: ballNumber, time: this.simulationElapsedTime });
@@ -1834,6 +1959,9 @@ BilliardTable.prototype.pocketBall = function(ballNumber, pocket) {
 
 BilliardTable.prototype.setCameraInteractive = function() {
   this.cameraState = 'interaction';
+}
+BilliardTable.prototype.setCameraReplay = function() {
+  this.cameraState = 'replay';
 }
 BilliardTable.prototype.tickCameras = function(dt) {
   // Determine the camera to draw (e.g. are we idling (rotate around the table
@@ -1865,9 +1993,10 @@ BilliardTable.prototype.tickCameras = function(dt) {
       }
       break;
     case 'simulation':
-      this.currentCamera = this.cameras.frontSidePocketCamera;  // XXX
       break;
     case 'replay':
+      this.currentCamera = this.cameras.southPocket;  // XXX
+      this.currentCamera.follow(this.balls[0]);
       break;
   }
 
@@ -2704,6 +2833,25 @@ var NORTH_POCKET = mult(SOUTH_POCKET,
                         mat2(-1.0,  0.0,
                               0.0, -1.0));
 POCKETS.push(NORTH_POCKET);
+
+function pocketFromName(pocketName) {
+  switch (pocketName) {
+    case 'SOUTHEAST_POCKET':
+      return SOUTHEAST_POCKET;
+    case 'SOUTH_POCKET':
+      return SOUTH_POCKET;
+    case 'SOUTHWEST_POCKET':
+      return SOUTHWEST_POCKET;
+    case 'NORTHEAST_POCKET':
+      return NORTHEAST_POCKET;
+    case 'NORTHWEST_POCKET':
+      return NORTHWEST_POCKET;
+    case 'NORTH_POCKET':
+      return NORTH_POCKET;
+    default:
+      throw "Unknown pocket name: " + pocketName;
+  }
+}
 
 function linePlaneIntersection(linePoint, lineVector, planePoint, planeNormal) {
   var denominator = dot(lineVector, planeNormal);
