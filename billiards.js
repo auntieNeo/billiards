@@ -125,6 +125,11 @@ NORTH_POCKET_CAMERA_FOV = SOUTH_POCKET_CAMERA_FOV
 NORTH_POCKET_CAMERA_NEAR = SOUTH_POCKET_CAMERA_NEAR
 NORTH_POCKET_CAMERA_FAR = SOUTH_POCKET_CAMERA_FAR
 
+CHASE_CAMERA_FOV = SOUTH_POCKET_CAMERA_FOV;
+CHASE_CAMERA_NEAR = SOUTH_POCKET_CAMERA_NEAR;
+CHASE_CAMERA_FAR = SOUTH_POCKET_CAMERA_FAR;
+CHASE_CAMERA_DISPLACEMENT = vec2(0.4, 0.2);  // Displacement in the XY plane, and then along the Z axis
+
 
 /*
 // Ball colors (passed to the shader)
@@ -1528,7 +1533,14 @@ var BilliardTable = function(gamemode, position, orientation) {
               near: SOUTH_POCKET_CAMERA_NEAR,
               far: SOUTH_POCKET_CAMERA_FAR },
             SOUTH_POCKET_CAMERA_POSITION,
-            SOUTH_POCKET_CAMERA_ORIENTATION)
+            SOUTH_POCKET_CAMERA_ORIENTATION),
+    chase: new Camera(
+            { type: 'perspective',
+              fov: CHASE_CAMERA_FOV,
+              near: CHASE_CAMERA_NEAR,
+              far: CHASE_CAMERA_FAR },
+            vec3(0.0, 0.0, 0.0, 0.0),
+            vec4(0.0, 0.0, 0.0, 1.0))
   }
   this.cameras.mainPerspective.interactiveRotate(
       this, vec3(0.0, 0.0, 1.0),
@@ -2383,7 +2395,7 @@ BilliardTable.prototype.setCameraInteractive = function() {
   this.cameraState = 'interaction';
 }
 BilliardTable.prototype.setCameraReplay = function() {
-  this.cameraState = 'replay';
+  this.cameraState = 'startReplay';
 }
 BilliardTable.prototype.tickCameras = function(dt) {
   // Determine the camera to draw (e.g. are we idling (rotate around the table
@@ -2416,9 +2428,16 @@ BilliardTable.prototype.tickCameras = function(dt) {
       break;
     case 'simulation':
       break;
+    case 'startReplay':
+      // Position the chase camera behind the cue ball, pointing in the
+      // direction of its velocity
+      this.currentCamera = this.cameras.chase;
+      this.currentCamera.chase(this.balls[0],
+          add(vec3(0.0, 0.0, CHASE_CAMERA_DISPLACEMENT[1]), scale(-CHASE_CAMERA_DISPLACEMENT[0], normalize(this.balls[0].velocity))));
     case 'replay':
-      this.currentCamera = this.cameras.southPocket;  // XXX
-      this.currentCamera.follow(this.balls[0]);
+      this.cameraState = 'replay';
+//      this.currentCamera = this.cameras.southPocket;  // XXX
+//      this.currentCamera.follow(this.balls[0]);
       break;
   }
 
@@ -2855,7 +2874,7 @@ Camera.prototype.follow = function(object, fudgeVector) {
     type: "follow",
     object: object,
     fudge: fudgeVector
-  }
+  };
 }
 Camera.prototype.rotateAbout = function(object, axis, angularVelocity, fudgeVector) {
   // Rotate about the object (in tick())
@@ -2865,7 +2884,7 @@ Camera.prototype.rotateAbout = function(object, axis, angularVelocity, fudgeVect
     axis: axis.slice(),
     angularVelocity: angularVelocity,
     fudge: fudgeVector
-  }
+  };
 }
 Camera.prototype.interactiveRotate = function(object, axis, angularAcceleration, angularFrictionAcceleration, maxAngularVelocity, fudgeVector) {
   this.animation = {
@@ -2879,7 +2898,15 @@ Camera.prototype.interactiveRotate = function(object, axis, angularAcceleration,
     angularDisplacement: 0.0,
     initialPosition: this.position,
     fudge: fudgeVector
-  }
+  };
+}
+Camera.prototype.chase = function(object, fudgeDisplacement) {
+  // Simply chase the object by matching our position to its position
+  this.animation = {
+    type: "chase",
+    object: object,
+    fudgeDisplacement: fudgeDisplacement
+  };
 }
 Camera.prototype.transitionTo = function(camera, stepFunction, callback) {
   // TODO
@@ -2959,6 +2986,11 @@ Camera.prototype.tick = function(dt) {
       this.position = vec3(mult(vec4(this.animation.initialPosition), quatToMatrix(quat(this.animation.axis, this.animation.angularDisplacement))));
 
       this.lookAtSmooth(this.animation.object, this.animation.fudge);
+      break;
+    case 'chase':
+      // Simply follow the object's position by changing our position
+      this.position = add(this.animation.fudgeDisplacement, this.animation.object.position);
+      this.lookAtSmooth(this.animation.object);
       break;
   }
 }
