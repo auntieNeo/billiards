@@ -1879,7 +1879,11 @@ BilliardTable.prototype.tick = function(dt) {
       // The replay simulates a lot of physics, but no game logic is advanced
       // TODO: Check for times of interest and save the state at those times
       console.log("Simulation elapsed time: " + this.simulationElapsedTime);
-      if (this.simulationElapsedTime > this.simulationEndTime) {
+      if (this.keysDepressed.spacebar) {
+        // Spacebar skips the replays
+        this.state = 'postReplay';
+        return;
+      } else if (this.simulationElapsedTime > this.simulationEndTime) {
         // Stop the initial replay some time after the last ball has been
         // pocketed
       } else {
@@ -2459,6 +2463,15 @@ BilliardTable.prototype.tickCameras = function(dt) {
   // Determine which camera we should be using
   switch (this.cameraState) {
     case 'interaction':
+      if (this.keysDepressed.spacebar) {
+        // Spacebar toggles between perspective and orthographic view
+        if (this.currentCameraAngle != 'orthographic') {
+          this.currentCameraAngle = 'orthographic';
+        } else {
+          this.currentCameraAngle = 'perspective';
+        }
+        this.keysDepressed.spacebar = false;  // Consume the input
+      }
       switch (this.currentCameraAngle) {
         case 'perspective':
           this.currentCamera = this.cameras.mainPerspective;
@@ -2469,8 +2482,8 @@ BilliardTable.prototype.tickCameras = function(dt) {
           } else if (this.keysDepressed.rightArrow &&
               !this.keysDepressed.leftArrow) {
             this.currentCamera.rotateCounterClockwise();
-          } else {
           }
+          // TODO: Up/down camera controls?
         break;
         case 'orthographic':
           this.currentCamera = this.cameras.mainOrthographic;
@@ -2532,12 +2545,7 @@ BilliardTable.prototype.mouseUpEvent = function(event) {
 BilliardTable.prototype.keyDownEvent = function(event) {
   switch (event.keyCode) {
     case 0x20:  // Spacebar
-      // Toggle between perspective and orthographic view
-      if (this.currentCameraAngle != 'orthographic') {
-        this.currentCameraAngle = 'orthographic';
-      } else {
-        this.currentCameraAngle = 'perspective';
-      }
+      this.keysDepressed.spacebar = true;
       break;
     // Arrow keys are used for camera controls, with most of the logic inside
     // tickCameras()
@@ -2551,6 +2559,9 @@ BilliardTable.prototype.keyDownEvent = function(event) {
 }
 BilliardTable.prototype.keyUpEvent = function(event) {
   switch (event.keyCode) {
+    case 0x20:  // Spacebar
+      this.keysDepressed.spacebar = false;
+      break;
     case 0x25:  // Left Arrow
       this.keysDepressed.leftArrow = false;
       break;
