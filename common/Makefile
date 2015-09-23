@@ -1,5 +1,5 @@
 sdf = ../sdf/sdf
-sdf_near_ball_args = 256 128 .1
+sdf_near_ball_args = 512 256 .1
 sdf_far_ball_args = 256 128 .7
 
 all: billiard_ball_1_sdf_near.png billiard_ball_1_sdf_far.png billiard_ball_2_sdf_near.png billiard_ball_2_sdf_far.png billiard_ball_3_sdf_near.png billiard_ball_3_sdf_far.png billiard_ball_4_sdf_near.png billiard_ball_4_sdf_far.png billiard_ball_5_sdf_near.png billiard_ball_5_sdf_far.png billiard_ball_6_sdf_near.png billiard_ball_6_sdf_far.png billiard_ball_7_sdf_near.png billiard_ball_7_sdf_far.png billiard_ball_8_sdf_near.png billiard_ball_8_sdf_far.png billiard_ball_9_sdf_near.png billiard_ball_9_sdf_far.png billiard_ball_10_sdf_near.png billiard_ball_10_sdf_far.png billiard_ball_11_sdf_near.png billiard_ball_11_sdf_far.png billiard_ball_12_sdf_near.png billiard_ball_12_sdf_far.png billiard_ball_13_sdf_near.png billiard_ball_13_sdf_far.png billiard_ball_14_sdf_near.png billiard_ball_14_sdf_far.png billiard_ball_15_sdf_near.png billiard_ball_15_sdf_far.png 
@@ -71,36 +71,36 @@ billiard_ball_15_sdf_far.png: billiard_ball_15_bitmask.png
 # Gimp doesn't really know how to store a .png with 1 bit of depth, so we use
 # ImageMagick to convert it
 billiard_ball_1_bitmask.png: 
-	convert billiard_ball_1_mask.png -depth 1 billiard_ball_1_bitmask.png
+	convert billiard_ball_1_mask.png -depth 1 -type Grayscale billiard_ball_1_bitmask.png
 billiard_ball_2_bitmask.png: 
-	convert billiard_ball_2_mask.png -depth 1 billiard_ball_2_bitmask.png
+	convert billiard_ball_2_mask.png -depth 1 -type Grayscale billiard_ball_2_bitmask.png
 billiard_ball_3_bitmask.png: 
-	convert billiard_ball_3_mask.png -depth 1 billiard_ball_3_bitmask.png
+	convert billiard_ball_3_mask.png -depth 1 -type Grayscale billiard_ball_3_bitmask.png
 billiard_ball_4_bitmask.png: 
-	convert billiard_ball_4_mask.png -depth 1 billiard_ball_4_bitmask.png
+	convert billiard_ball_4_mask.png -depth 1 -type Grayscale billiard_ball_4_bitmask.png
 billiard_ball_5_bitmask.png: 
-	convert billiard_ball_5_mask.png -depth 1 billiard_ball_5_bitmask.png
+	convert billiard_ball_5_mask.png -depth 1 -type Grayscale billiard_ball_5_bitmask.png
 billiard_ball_6_bitmask.png: 
-	convert billiard_ball_6_mask.png -depth 1 billiard_ball_6_bitmask.png
+	convert billiard_ball_6_mask.png -depth 1 -type Grayscale billiard_ball_6_bitmask.png
 billiard_ball_7_bitmask.png: 
-	convert billiard_ball_7_mask.png -depth 1 billiard_ball_7_bitmask.png
+	convert billiard_ball_7_mask.png -depth 1 -type Grayscale billiard_ball_7_bitmask.png
 billiard_ball_8_bitmask.png: 
-	convert billiard_ball_8_mask.png -depth 1 billiard_ball_8_bitmask.png
+	convert billiard_ball_8_mask.png -depth 1 -type Grayscale billiard_ball_8_bitmask.png
 billiard_ball_9_bitmask.png: 
-	convert billiard_ball_9_mask.png -depth 1 billiard_ball_9_bitmask.png
+	convert billiard_ball_9_mask.png -depth 1 -type Grayscale billiard_ball_9_bitmask.png
 billiard_ball_10_bitmask.png: 
-	convert billiard_ball_10_mask.png -depth 1 billiard_ball_10_bitmask.png
+	convert billiard_ball_10_mask.png -depth 1 -type Grayscale billiard_ball_10_bitmask.png
 billiard_ball_11_bitmask.png: 
-	convert billiard_ball_11_mask.png -depth 1 billiard_ball_11_bitmask.png
+	convert billiard_ball_11_mask.png -depth 1 -type Grayscale billiard_ball_11_bitmask.png
 billiard_ball_12_bitmask.png: 
-	convert billiard_ball_12_mask.png -depth 1 billiard_ball_12_bitmask.png
+	convert billiard_ball_12_mask.png -depth 1 -type Grayscale billiard_ball_12_bitmask.png
 billiard_ball_13_bitmask.png: 
-	convert billiard_ball_13_mask.png -depth 1 billiard_ball_13_bitmask.png
+	convert billiard_ball_13_mask.png -depth 1 -type Grayscale billiard_ball_13_bitmask.png
 billiard_ball_14_bitmask.png: 
-	convert billiard_ball_14_mask.png -depth 1 billiard_ball_14_bitmask.png
+	convert billiard_ball_14_mask.png -depth 1 -type Grayscale billiard_ball_14_bitmask.png
 billiard_ball_15_bitmask.png: 
-	convert billiard_ball_15_mask.png -depth 1 billiard_ball_15_bitmask.png
+	convert billiard_ball_15_mask.png -depth 1 -type Grayscale billiard_ball_15_bitmask.png
 
 .PHONY: clean
 clean:
-	rm -f *sdf_far.png *sdf_near.png *sdf.png
+	rm -f *_bitmask.png *sdf_far.png *sdf_near.png *sdf.png

@@ -1138,6 +1138,16 @@ var BilliardBall = function(number, initialPosition) {
 };
 BilliardBall.prototype = Object.create(MeshObject.prototype);
 BilliardBall.prototype.constructor = BilliardBall;
+BilliardBall.prototype.startDrop = function(position) {
+  if (typeof position == 'undefined') {
+    // Place the ball in its rack position on the table
+    this.position = vec3(this.initialPosition[0], this.initialPosition[1], BALL_RADIUS);
+  } else {
+    this.position = vec3(position[0], position[1], BALL_RADIUS);
+  }
+  // Notify our state machine
+  this.state = 'startDrop';
+}
 BilliardBall.prototype.putInPlay = function(position) {
   if (typeof position == 'undefined') {
     // Place the ball in its rack position on the table
@@ -1171,6 +1181,8 @@ BilliardBall.prototype.saveState = function() {
   state.timeElapsedInPlay = this.timeElapsedInPlay;
   state.pocketName = this.pocketName;
   state.pocket = this.pocket;
+  state.pocketTime = this.pocketTime;
+  state.firstHitTime = this.firstHitTime;
   state.position = this.position.slice();
   state.orientation = this.orientation.slice();
   state.velocity = this.velocity.slice();
@@ -1181,6 +1193,8 @@ BilliardBall.prototype.restoreState = function(state) {
   this.timeElapsedInPlay = state.timeElapsedInPlay;
   this.pocketName = state.pocketName;
   this.pocket = state.pocket;
+  this.pocketTime = state.pocketTime;
+  this.firstHitTime = state.firstHitTime;
   this.position = state.position.slice();
   this.orientation = state.orientation.slice();
   this.velocity = state.velocity.slice();
@@ -1188,6 +1202,12 @@ BilliardBall.prototype.restoreState = function(state) {
 BilliardBall.prototype.tick = function(dt) {
   switch (this.state) {
     case 'idle':
+      break;
+    case 'startDrop':
+    case 'drop':
+      // This state allows us to be rendered without actually doing any physics
+      // or be considered in play
+      this.state = 'drop';
       break;
     case 'startInPlay':
       this.timeElapsedInPlay = -dt;  // -dt + dt = 0.0
@@ -1381,17 +1401,17 @@ var BilliardTable = function(gamemode, position, orientation) {
       // Make objects for each ball
       this.balls = [];
       // Place the cue ball somewhere in "the kitchen"
-      this.balls.push(new BilliardBall(0, vec3((-3/8) * TABLE_LENGTH, 0.0)));
+      this.balls[0] = new BilliardBall(0, vec3((-3/8) * TABLE_LENGTH, 0.0));
       // Make a set of unracked balls
       var unrackedBalls = new Set();
       for (var i = 1; i < EIGHT_BALL_NUM_BALLS; ++i) {
         unrackedBalls.add(i);
       }
       // Place the One ball at the front
-      this.balls.push(new BilliardBall(1, vec3(TRIANGLE_RACK[0][0], TRIANGLE_RACK[0][1])));
+      this.balls[1] = new BilliardBall(1, vec3(TRIANGLE_RACK[0][0], TRIANGLE_RACK[0][1]));
       unrackedBalls.delete(1);
       // Place the Eight ball in the middle
-      this.balls.push(new BilliardBall(8, vec3(TRIANGLE_RACK[4][0], TRIANGLE_RACK[4][1])));
+      this.balls[8] = new BilliardBall(8, vec3(TRIANGLE_RACK[4][0], TRIANGLE_RACK[4][1]));
       unrackedBalls.delete(8);
       // Place the rest of the balls at random, being careful to place the
       // first solid and the first stripe we encounter in each of the corners
@@ -1405,10 +1425,10 @@ var BilliardTable = function(gamemode, position, orientation) {
             (!isStriped(ballNumber) && !placedSolid)) {
           // Place one of the corner balls
           if (nextCornerPosition == 10) {
-            this.balls.push(new BilliardBall(ballNumber, vec3(TRIANGLE_RACK[10][0], TRIANGLE_RACK[10][1])));
+            this.balls[ballNumber] = new BilliardBall(ballNumber, vec3(TRIANGLE_RACK[10][0], TRIANGLE_RACK[10][1]));
             nextCornerPosition = 14;
           } else if (nextCornerPosition == 14) {
-            this.balls.push(new BilliardBall(ballNumber, vec3(TRIANGLE_RACK[14][0], TRIANGLE_RACK[14][1])));
+            this.balls[ballNumber] = new BilliardBall(ballNumber, vec3(TRIANGLE_RACK[14][0], TRIANGLE_RACK[14][1]));
             nextCornerPosition = undefined;
           }
           if (isStriped(ballNumber)) {
@@ -1419,7 +1439,7 @@ var BilliardTable = function(gamemode, position, orientation) {
           continue;
         }
         // Place one of the balls not in the corner
-        this.balls.push(new BilliardBall(ballNumber, vec3(TRIANGLE_RACK[nextPosition][0], TRIANGLE_RACK[nextPosition][1])));
+        this.balls[ballNumber] = new BilliardBall(ballNumber, vec3(TRIANGLE_RACK[nextPosition][0], TRIANGLE_RACK[nextPosition][1]));
         // Carefully avoid the Eight ball position and the corner positions
         // when incrementing the placement position
         if (nextPosition == 3) {
@@ -1437,24 +1457,24 @@ var BilliardTable = function(gamemode, position, orientation) {
       // Make objects for each ball
       this.balls = [];
       // Place the cue ball somewhere in "the kitchen"
-      this.balls.push(new BilliardBall(0, vec3((-3/8) * TABLE_LENGTH, 0.0)));
+      this.balls[0] = new BilliardBall(0, vec3((-3/8) * TABLE_LENGTH, 0.0));
       // Make a set of unracked balls
       var unrackedBalls = new Set();
       for (var i = 1; i < NINE_BALL_NUM_BALLS; ++i) {
         unrackedBalls.add(i);
       }
       // Place the One ball at the front
-      this.balls.push(new BilliardBall(1, vec3(DIAMOND_RACK[0][0], DIAMOND_RACK[0][1])));
+      this.balls[1] = new BilliardBall(1, vec3(DIAMOND_RACK[0][0], DIAMOND_RACK[0][1]));
       unrackedBalls.delete(1);
       // Place the Nine ball in the middle
-      this.balls.push(new BilliardBall(9, vec3(DIAMOND_RACK[4][0], DIAMOND_RACK[4][1])));
+      this.balls[9] = new BilliardBall(9, vec3(DIAMOND_RACK[4][0], DIAMOND_RACK[4][1]));
       unrackedBalls.delete(9);
       // Place the rest of the balls at random, being careful to avoid placing
       // balls where the Nine ball is
       var nextPosition = 1;
       while (unrackedBalls.size > 0) {
         var ballNumber = takeRandomFromSet(unrackedBalls);
-        this.balls.push(new BilliardBall(ballNumber, vec3(DIAMOND_RACK[nextPosition][0], DIAMOND_RACK[nextPosition][1])));
+        this.balls[ballNumber] = new BilliardBall(ballNumber, vec3(DIAMOND_RACK[nextPosition][0], DIAMOND_RACK[nextPosition][1]));
         // Carefully avoid the Nine ball position and the corner positions
         if (nextPosition == 3) {
           nextPosition = 5;  // Avoid the nine ball
@@ -1568,6 +1588,9 @@ BilliardTable.prototype.saveState = function() {
     state.balls.push(this.balls[i].saveState());
   }
 
+  // Save the list of pocketed balls
+  state.pocketedBalls = this.pocketedBalls.slice();
+
   // Save the elapsed simulation time
   state.simulationElapsedTime = this.simulationElapsedTime;
 
@@ -1587,6 +1610,9 @@ BilliardTable.prototype.restoreState = function(state) {
       this.yBalls.push(this.balls[i]);
     }
   }
+
+  // restore the list of pocketed balls
+  this.pocketedBalls = state.pocketedBalls.slice();
 
   // Save the elapsed simulation time
   this.simulationElapsedTime = state.simulationElapsedTime;
@@ -1628,7 +1654,6 @@ BilliardTable.prototype.tick = function(dt) {
         this.yBalls.push(this.balls[i]);
       }
       this.pocketedBalls = [];
-      this.oldPocketedBalls = [];
     case 'startInitialDropCueBall':
       // Place the cue ball in the middle of the 'kitchen'
       this.balls[0].putInPlay(vec3((-3/8) * TABLE_LENGTH, BALL_RADIUS));
@@ -1656,8 +1681,12 @@ BilliardTable.prototype.tick = function(dt) {
       this.yBalls.push(this.balls[0]);
       this.mouseStart = undefined;  // Consume the click input
     case 'postInitialDropCueBall':
+    case 'startDropCueBall':
+      this.mouseStart = undefined;  // Consume the click input
     case 'dropCueBall':
-      if (this.state == 'dropCueBall') {
+      if (this.state == 'dropCueBall' ||
+          this.state == 'startDropCueBall') {
+        this.state = 'dropCueBall';
         // Have the user drop the cue ball anywhere
         if (typeof this.mousePos != 'undefined') {
           this.dropCueBall(this.balls[0], this.mousePos,
@@ -1731,13 +1760,10 @@ BilliardTable.prototype.tick = function(dt) {
     case 'postSimulation':
       this.state = 'postSimulation';
       // Look for any new pocketed balls
-      this.cueBallPocketed = false;
       this.replayQueue = new Map();
+      window.alert("Pocketed balls: " + this.pocketedBalls);
       for (var i = 0; i < this.pocketedBalls.length; ++i) {
-        if (this.pocketedBalls[i].ball == 0) {
-          this.cueBallPocketed = true;
-        }
-        var ball = this.balls[this.pocketedBalls[i].ball];
+        var ball = this.balls[this.pocketedBalls[i]];
         var pocketName = ball.pocketName;
         if (this.replayQueue.has(pocketName)) {
           // At least one other ball has been pocketed in the same pocket; we
@@ -1814,12 +1840,13 @@ BilliardTable.prototype.tick = function(dt) {
       // Get out of the replay camera
       this.setCameraInteractive();
       // Determine what turn is next (i.e. cue shot, cue ball drop, or break shot)
-      if (this.cueBallPocketed) {
-        this.cueBallPocketed = false;
+      if (this.pocketedBalls.indexOf(0) != -1) {
+        // Remove the cue ball from the list of pocketed balls
+        this.pocketedBalls.splice(this.pocketedBalls.indexOf(0), 1);
         // The cue ball was pocketed; we need to drop it somewhere
-        this.balls[0].putInPlay(vec2(0.0, 0.0));
-        this.state = 'dropCueBall';
-        break;
+        this.balls[0].startDrop(vec2(0.0, 0.0));
+        this.state = 'startDropCueBall';
+        return;
       } else {  // TODO: Check that the game hasn't ended
         this.state = 'startSetupShot';
         break;
@@ -2035,7 +2062,6 @@ BilliardTable.prototype.tickSimulation = function(dt) {
       for (var i = this.xBalls.length - 1; i >= 0; --i) {
         if (this.xBalls[i].position[0] > SOUTHEAST_POCKET[0] - POCKET_RADIUS) {
           eastPocketNeighborhood.add(this.xBalls[i].number);
-          window.alert("Ball in east pocket neighborhood: " + this.xBalls[i].number);
           continue;
         }
         break;
@@ -2045,7 +2071,6 @@ BilliardTable.prototype.tickSimulation = function(dt) {
       for (var i = 0; i < this.xBalls.length; ++i) {
         if (this.xBalls[i].position[0] < SOUTHWEST_POCKET[0] + POCKET_RADIUS) {
           westPocketNeighborhood.add(this.xBalls[i].number);
-          window.alert("Ball in west pocket neighborhood: " + this.xBalls[i].number);
           continue;
         }
         break;
@@ -2055,7 +2080,6 @@ BilliardTable.prototype.tickSimulation = function(dt) {
       for (var i = 0; i < this.yBalls.length; ++i) {
         if (this.yBalls[i].position[1] < Math.max(SOUTH_POCKET[1], SOUTHEAST_POCKET[1]) + POCKET_RADIUS) {
           southPocketNeighborhood.add(this.yBalls[i].number);
-          window.alert("Ball in south pocket neighborhood: " + this.xBalls[i].number);
           continue;
         }
         break;
@@ -2065,7 +2089,6 @@ BilliardTable.prototype.tickSimulation = function(dt) {
       for (var i = this.yBalls.length - 1; i >= 0; --i) {
         if (this.yBalls[i].position[1] > Math.min(NORTH_POCKET[1], NORTHEAST_POCKET[1]) - POCKET_RADIUS) {
           northPocketNeighborhood.add(this.yBalls[i].number);
-          window.alert("Ball in north pocket neighborhood: " + this.xBalls[i].number);
           continue;
         }
         break;
@@ -2346,7 +2369,7 @@ BilliardTable.prototype.pocketBall = function(ballNumber, pocketName) {
   this.balls.pocketTime = this.simulationElapsedTime;
   // Note the simulation time that the ball was pocketed, so we can make a nice
   // replay
-  this.pocketedBalls.push({ ball: ballNumber, time: this.simulationElapsedTime });
+  this.pocketedBalls.push(ballNumber);
 }
 
 BilliardTable.prototype.setCameraInteractive = function() {
