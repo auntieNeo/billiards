@@ -38,7 +38,7 @@ var POCKET_EDGE_MIN_FUDGE_VELOCITY = 3.0E-2;
 var POCKET_EDGE_FUDGE_ACCELERATION = GRAVITY_ACCELERATION/2;
 var POCKET_DAMPER = 0.75;
 var BALL_TIME_TO_FADE_IN = 0.1;
-var BALL_TIME_TO_FADE_OUT = 0.5;
+var BALL_TIME_TO_FADE_OUT = 2.0;
 
 // Various billiards dimensions in meters
 /*
@@ -108,9 +108,27 @@ MAIN_CAMERA_FUDGE_VECTOR = vec3(0.0, 0.0, -0.4);  // Point the camera further un
 
 MAIN_ORTHO_CAMERA_POSITION = vec3(0.0, 0.0, 1.0);
 MAIN_ORTHO_CAMERA_ORIENTATION = vec4(0.0, 0.0, 0.0, 1.0);
+MAIN_ORTHO_CAMERA_LEFT = -(TABLE_MODEL_LENGTH/2 + ORTHO_MARGIN);
+MAIN_ORTHO_CAMERA_RIGHT = TABLE_MODEL_LENGTH/2 + ORTHO_MARGIN;
+MAIN_ORTHO_CAMERA_BOTTOM = -(TABLE_MODEL_WIDTH/2 + ORTHO_MARGIN);
+MAIN_ORTHO_CAMERA_TOP = TABLE_MODEL_WIDTH/2 + ORTHO_MARGIN;
+MAIN_ORTHO_CAMERA_NEAR = MAIN_CAMERA_NEAR;
+MAIN_ORTHO_CAMERA_FAR = MAIN_CAMERA_FAR;
 
 LOADING_SCREEN_CAMERA_POSITION = MAIN_ORTHO_CAMERA_POSITION;
 LOADING_SCREEN_CAMERA_ORIENTATION = MAIN_ORTHO_CAMERA_ORIENTATION;
+
+HEADS_UP_DISPLAY_CAMERA_POSITION = vec3(0.0, 0.0, 1.0);
+HEADS_UP_DISPLAY_CAMERA_ORIENTATION = MAIN_ORTHO_CAMERA_ORIENTATION;
+HEADS_UP_DISPLAY_CAMERA_LEFT = MAIN_ORTHO_CAMERA_LEFT;
+HEADS_UP_DISPLAY_CAMERA_RIGHT = MAIN_ORTHO_CAMERA_RIGHT;
+HEADS_UP_DISPLAY_CAMERA_BOTTOM = MAIN_ORTHO_CAMERA_BOTTOM;
+HEADS_UP_DISPLAY_CAMERA_TOP = MAIN_ORTHO_CAMERA_TOP;
+HEADS_UP_DISPLAY_CAMERA_NEAR = MAIN_ORTHO_CAMERA_NEAR;
+HEADS_UP_DISPLAY_CAMERA_FAR = MAIN_ORTHO_CAMERA_FAR;
+
+HUD_MARGIN = ORTHO_MARGIN/3;
+HUD_NEXT_BALL_ANGULAR_VELOCITY = Math.PI/2;
 
 SOUTH_POCKET_CAMERA_POSITION = vec3(0.0, 0.63724, 0.055582);
 SOUTH_POCKET_CAMERA_ORIENTATION = quat(-0.001, -0.510, -0.860, -0.002);
@@ -131,7 +149,6 @@ CHASE_CAMERA_FAR = SOUTH_POCKET_CAMERA_FAR;
 CHASE_CAMERA_DISPLACEMENT = vec2(0.4, 0.2);  // Displacement in the XY plane, and then along the Z axis
 
 
-/*
 // Ball colors (passed to the shader)
 // Based on the color of bakelite billiard balls
 BALL_WHITE = scale(1.0/255.0, vec3(253, 242, 169));
@@ -143,7 +160,7 @@ BALL_ORANGE = scale(1.0/255.0, vec3(254, 97, 49));
 BALL_GREEN = scale(1.0/255.0, vec3(32, 99, 58));
 BALL_MAROON = scale(1.0/255.0, vec3(84, 62, 44));
 BALL_BLACK = scale(1.0/255.0, vec3(26, 16, 13));
-*/
+/*
 BALL_WHITE = scale(1.0/255.0, vec3(237, 224, 179));
 BALL_YELLOW = scale(1.0/255.0, vec3(235, 193, 0));
 BALL_BLUE = scale(1.0/255.0, vec3(50, 31, 99));
@@ -153,6 +170,7 @@ BALL_ORANGE = scale(1.0/255.0, vec3(214, 118, 0));
 BALL_GREEN = scale(1.0/255.0, vec3(15, 58, 3));
 BALL_MAROON = scale(1.0/255.0, vec3(106, 11, 10));
 BALL_BLACK = scale(1.0/255.0, vec3(14, 14, 6));
+*/
 
 // Replay constants
 REPLAY_TIME_BEFORE_HIT = 1.5;
@@ -163,6 +181,7 @@ AUDIO_OBJECTS_PER_SOUND = 4;  // Arbitrary
 BALL_BALL_COLLISION_LOUD_SOUND_MIN_VELOCITY = .8;
 
 // Globals
+var hud;
 var billiardTable;
 var audioPool;
 var debug;
@@ -170,6 +189,8 @@ var debug;
 function animate(dt) {
   // Simulate physics, game state, and cameras in BilliardTable
   billiardTable.tick(dt);
+  // Don't forget the animations in the HUD
+  hud.tick(dt);
 }
 
 var lastTime;
@@ -239,6 +260,10 @@ function render() {
 
   billiardTable.draw(gl, modelWorld, worldView, projection);
 
+  // Draw the HUD on top of the game objects
+  hud.draw(gl);
+
+  // Draw debug last
   debug.draw(gl, worldView, projection);
 }
 
@@ -260,9 +285,10 @@ window.onload = function init() {
   // Configure WebGL
   //----------------------------------------
   gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
-  gl.clearColor(0.0, 0.0, 0.0, 1.0);
+//  gl.clearColor(0.0, 0.0, 0.0, 1.0);
+  gl.clearColor(0.0, 0.0, 0.12, 1.0);
   gl.enable(gl.DEPTH_TEST);
-  gl.enable(gl.CULL_FACE);
+  gl.disable(gl.CULL_FACE);  // XXX
   gl.cullFace(gl.BACK);
 
   //----------------------------------------
@@ -335,9 +361,8 @@ window.onload = function init() {
 function startGame() {
   debug = new GraphicsDebug(assets["debug"]);
 
-  //----------------------------------------
-  // TODO: Create game objects
-  //----------------------------------------
+  hud = new HeadsUpDisplay();
+
   // TODO: Allow user to select different game modes
   billiardTable = new BilliardTable(NINE_BALL_MODE);
 
@@ -399,8 +424,8 @@ function drawLoadingScreen() {
       -1.0, 1.0, -1.0, 0.0, 1.0,  // Top left
     ];
     var elements = [
-      0, 1, 2,
-      2, 3, 0
+      0, 1, 2,  // Bottom right triangle
+      2, 3, 0  // Top left triangle
     ];
     var elementsUint = new Int16Array(elements.length);
     for (var i = 0; i < elements.length; ++i) {
@@ -536,7 +561,10 @@ var shaderAssets = [ { name: "billiardtable", vert: "billiardtable-vert", frag: 
                        uniforms: [ "modelViewMatrix", "projectionMatrix", "fadeAlpha" ] },
                      { name: "debug", vert: "debug-vert", frag: "debug-frag",
                        attributes: [ "vertexPosition" ],
-                       uniforms: [ "modelViewMatrix", "projectionMatrix" ] }
+                       uniforms: [ "modelViewMatrix", "projectionMatrix" ] },
+                     { name: "tile", vert: "tile-vert", frag: "tile-frag",
+                       attributes: [ "vertexPosition", "vertexUV" ],
+                       uniforms: [ "modelViewMatrix", "projectionMatrix", "textureSampler" ] }
 ];
 var assetIndex = 0;
 var assetHandle = null;
@@ -1181,6 +1209,11 @@ BilliardBall.prototype.setPocket = function(pocketName) {
   this.pocket = pocketFromName(pocketName);
   this.state = 'startPocketed';
 }
+BilliardBall.prototype.setIdleDrawing = function() {
+  // The HUD in particular needs to draw the ball, but it does not need the
+  // ball's state machine to do anything
+  this.state = 'idleDrawing';
+}
 BilliardBall.prototype.saveState = function() {
   var state = {};
   state.state = this.state;
@@ -1209,6 +1242,8 @@ BilliardBall.prototype.tick = function(dt) {
   switch (this.state) {
     case 'idle':
       break;
+    case 'idleDrawing':
+      break;
     case 'startDrop':
     case 'drop':
       // This state allows us to be rendered without actually doing any physics
@@ -1229,7 +1264,6 @@ BilliardBall.prototype.tick = function(dt) {
       this.timeElapsedSincePocketed += dt;
       this.tickPhysics(dt);  // Still falling
       // Interpolate the fade alpha from the time pocketed to the fade out time
-//      this.fadeAlpha = 1.0 - (this.timeElapsedSincePocketed/BALL_TIME_TO_FADE_OUT);
       while (this.timeElapsedSincePocketed < BALL_TIME_TO_FADE_OUT) {
         break;
       }
@@ -1394,15 +1428,16 @@ BilliardBall.prototype.draw = function(gl, modelWorld, worldView, projection) {
 //------------------------------------------------------------
 // Prototype for billiard tables
 //------------------------------------------------------------
-var BilliardTable = function(gamemode, position, orientation) {
+var BilliardTable = function(gameMode, position, orientation) {
   // Iherit from SceneObject
   MeshObject.call(this,
       "common/billiard_table.obj", "common/billiard_table.png", "billiardtable",
       position, orientation);
 
-  this.gamemode = gamemode;
+  this.gameMode = gameMode;
+  this.gameState = 'start';
   // Set game parameters based on the selected game mode
-  switch (gamemode) {
+  switch (gameMode) {
     case EIGHT_BALL_MODE:
       // Make objects for each ball
       this.balls = [];
@@ -1519,12 +1554,12 @@ var BilliardTable = function(gamemode, position, orientation) {
             MAIN_CAMERA_ORIENTATION),
     mainOrthographic: new Camera(
             { type: 'orthographic',
-              left: -(TABLE_MODEL_LENGTH/2 + ORTHO_MARGIN),
-              right: TABLE_MODEL_LENGTH/2 + ORTHO_MARGIN,
-              bottom: -(TABLE_MODEL_WIDTH/2 + ORTHO_MARGIN),
-              top: TABLE_MODEL_WIDTH/2 + ORTHO_MARGIN,
-              near: MAIN_CAMERA_NEAR,
-              far: MAIN_CAMERA_FAR },
+              left: MAIN_ORTHO_CAMERA_LEFT,
+              right: MAIN_ORTHO_CAMERA_RIGHT,
+              bottom: MAIN_ORTHO_CAMERA_BOTTOM,
+              top: MAIN_ORTHO_CAMERA_TOP,
+              near: MAIN_ORTHO_CAMERA_NEAR,
+              far: MAIN_ORTHO_CAMERA_FAR },
             MAIN_ORTHO_CAMERA_POSITION,
             MAIN_ORTHO_CAMERA_ORIENTATION),
     southPocket: new Camera(
@@ -1877,6 +1912,24 @@ BilliardTable.prototype.tick = function(dt) {
   this.cueStick.tick(dt);
   this.tickCameras(dt);
   this.tickSimulation(dt);
+  this.tickGameLogic(dt);
+}
+BilliardTable.prototype.tickGameLogic = function(dt) {
+  switch (this.gameMode) {
+    case NINE_BALL_MODE:
+      switch (this.gameState) {
+        case 'start':
+          hud.nextBall(1);
+        case 'playing':
+          this.gameState = 'playing';
+          break;
+        default:
+          throw "Encountered unknown game state '" + this.gameState + "'!";
+      }
+    break;
+    default:
+      throw "Encountered unknown game mode!";
+  }
 }
 BilliardTable.prototype.dropCueBall = function(ball, position, north, south, east, west) {
   // This function assists the user in droping the ball without having it
@@ -3514,4 +3567,186 @@ var isStriped = function(ballNumber) {
       return true;
   }
   return false;
+}
+
+// Some UV positions/dimensions for tiles (taken from Blender)
+TEXT_TEXTURE_DIMENSIONS = 4096.0;  // 4096 x 4096 in the original texture
+// REPLAY_TEXTURE = "common/menu_text_sdf.png";
+REPLAY_TEXTURE = "common/test.png";  // XXX
+REPLAY_TOP_LEFT = vec2(403.00, 3291.00);
+REPLAY_WIDTH = 2160.0;
+REPLAY_HEIGHT = 342.0;
+
+// The flat n' rectangular things we want to draw on the HUD and menu
+var Tile = function(texture, textureDimensions, tileTopLeft, tileWidth, tileHeight) {
+  this.texture = assets[texture];
+
+  // Calculate the UV coordinates (from 0.0 to 1.0 in two dimensions) that
+  // OpenGL will ultimately use. We don't really care what the original
+  // texture's size was, as long as it was square.
+  this.topLeft = scale(1.0/textureDimensions, tileTopLeft);
+  this.topRight = scale(1.0/textureDimensions, vec2(tileTopLeft[0] + tileWidth, tileTopLeft[1]));
+  this.bottomLeft = scale(1.0/textureDimensions, vec2(tileTopLeft[0], tileTopLeft[1] - tileHeight));
+  this.bottomRight = scale(1.0/textureDimensions, vec2(tileTopLeft[0] + tileWidth, tileTopLeft[1] - tileHeight));
+
+  // TODO: Orientation? I don't need that yet.
+  this.position = vec2(0.0, 0.0);  // Position of the center of the tile
+  this.scale = 1.0;
+
+  this.shader = assets["tile"];
+
+  // TODO: Send our verticies, along with UV coordinates, to the GPU. We have
+  // to be careful to scale the Y-dimension of our verticies to a length of
+  // 1.0, to ease the placement of text.
+  //
+  // The format for each vertex is
+  //
+  //    _____ _____ _____ _____ _____
+  //   | p_x | p_y | p_z | t_u | t_v |
+  //   '-----'-----'-----'-----'-----'
+  //         position       texture
+  //
+  var tileAspect = tileWidth / tileHeight;
+  var verticies = [
+    -(tileAspect/2), -0.5, -1.0, this.bottomLeft[0], this.bottomLeft[1],  // Bottom left
+    tileAspect/2, -0.5, -1.0, this.bottomRight[0], this.bottomRight[1],  // Bottom right
+    tileAspect/2, 0.5, -1.0, this.topRight[0], this.topRight[1],  // Top right
+    -(tileAspect/2), 0.5, -1.0, this.topLeft[0], this.topLeft[1]  // Top left
+  ];
+  var elements = [
+    0, 1, 2,  // Bottom right triangle
+    2, 3, 0  // Top left triangle
+  ];
+  var elementsUint = new Int16Array(elements.length);
+  for (var i = 0; i < elements.length; ++i) {
+    elementsUint[i] = elements[i];
+  }
+  this.vertexAttributesBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexAttributesBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, flatten(verticies), gl.STATIC_DRAW);
+  this.vertexElementsBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.vertexElementsBuffer);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, elementsUint, gl.STATIC_DRAW);
+}
+Tile.prototype.draw = function(gl, modelWorld, worldView, projection) {
+  var initialSize = modelWorld.size();
+  // Translate the tile into its position
+  modelWorld.push(translate(vec3(this.position)));
+  // Scale the tile proportionally
+  modelWorld.push(scalem(this.scale, this.scale, this.scale));
+
+  // Use our shader program
+  gl.useProgram(this.shader);
+  // Use our texture
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, this.texture);
+  gl.uniform1i(this.shader.uniforms.textureSampler, 0);
+  // Use our projection matrix and modelView matricies
+//  gl.uniformMatrix4fv(this.shader.uniforms.modelView, false, flatten(mult(worldView.peek(), modelWorld.peek())));
+  gl.uniformMatrix4fv(this.shader.uniforms.modelView, false, flatten(worldView.peek()));
+  gl.uniformMatrix4fv(this.shader.uniforms.projectionMatrix, false, flatten(projection.peek()));
+  // Use our verticies
+  gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexAttributesBuffer);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.vertexElementsBuffer);
+  gl.enableVertexAttribArray(this.shader.attributes.vertexPosition);
+//  gl.enableVertexAttribArray(this.shader.attributes.vertexUV);  // XXX
+  gl.vertexAttribPointer(loadingScreen.shader.attributes.vertexPosition,
+                         3,         // vec3
+                         gl.FLOAT,  // 32bit floating point
+                         false,     // Don't normalize values
+                         4 * 5,     // Stride for five 32-bit values per-vertex
+                         4 * 0);    // Position starts at the first value stored
+/*  gl.vertexAttribPointer(loadingScreen.shader.attributes.vertexUV,
+                         2,         // vec2
+                         gl.FLOAT,  // 32bit floating point
+                         false,     // Don't normalize values
+                         4 * 5,     // Stride for five 32-bit values per-vertex
+                         4 * 3);    // Texture coordinate starts at the forth value stored  */ // XXX
+  // Draw our rectangle
+  gl.drawElements(gl.TRIANGLES, 6 /* two triangles */, gl.UNSIGNED_SHORT, 0);
+
+  // Return the model-world transformation stack to its original state
+  modelWorld.unwind(initialSize);
+}
+
+var HeadsUpDisplay = function() {
+  this.state = 'idle';
+
+  this.tiles = {};
+  this.tiles.replay = new Tile(REPLAY_TEXTURE, TEXT_TEXTURE_DIMENSIONS,
+      REPLAY_TOP_LEFT, REPLAY_WIDTH, REPLAY_HEIGHT);
+
+  // Position our replay tile in the bottom of the screen in the margin
+  this.tiles.replay.position = vec2(0.0, TABLE_MODEL_WIDTH/2 + ORTHO_MARGIN/2);
+  this.tiles.replay.scale = ORTHO_MARGIN - HUD_MARGIN;
+
+  this.camera = new Camera(
+      { type: 'orthographic',
+        left: HEADS_UP_DISPLAY_CAMERA_LEFT,
+        right: HEADS_UP_DISPLAY_CAMERA_RIGHT,
+        bottom: HEADS_UP_DISPLAY_CAMERA_BOTTOM,
+        top: HEADS_UP_DISPLAY_CAMERA_TOP,
+        near: HEADS_UP_DISPLAY_CAMERA_NEAR,
+        far: HEADS_UP_DISPLAY_CAMERA_FAR },
+      HEADS_UP_DISPLAY_CAMERA_POSITION,
+      HEADS_UP_DISPLAY_CAMERA_ORIENTATION);
+}
+HeadsUpDisplay.prototype.nextBall = function(ballNumber) {
+  this.ball = new BilliardBall(ballNumber);
+  // Draw the ball at the top of the screen, in the space we have set aside as
+  // margin, and scale it to something around the size of a beach ball.
+  this.ball.position = vec3(TABLE_MODEL_LENGTH/2 - BALL_DIAMETER, TABLE_MODEL_WIDTH/2 + ORTHO_MARGIN/2, 0);
+  this.ball.scale = ORTHO_MARGIN/2 - HUD_MARGIN/2;
+  // Keep our ball drawing while idle
+  this.ball.setIdleDrawing();
+
+  // Notify our state machine
+  this.state = 'startNextBall';
+  this.timeElapsed = 0.0;
+}
+HeadsUpDisplay.prototype.replay = function() {
+  this.state = 'startReplay';
+}
+HeadsUpDisplay.prototype.tick = function(dt) {
+//  this.ball.tick();  // NOTE: pointless; our ball doesn't have any smarts
+  switch (this.state) {
+    case 'idle':
+      break;
+    case 'startNextBall':
+      this.state = 'nextBall';
+    case 'nextBall':
+      this.timeElapsed += dt;
+      break;
+    case 'startReplay':
+    case 'replay':
+      break;
+  }
+}
+HeadsUpDisplay.prototype.draw = function(gl) {
+  // The HUD is drawn on top of everything
+//  gl.disable(gl.DEPTH_TEST);
+
+  switch (this.state) {
+    case 'idle':
+      break;
+    case 'nextBall':
+      // We need to construct our own matrix transformations, since the HUD is
+      // not relative to any other object's frame
+      var modelWorld = new TransformationStack();  // We're drawing in world space; use identity transformation
+      var worldView = this.camera.worldViewTransformation();
+      var projection = this.camera.projectionTransformation(canvas.clientWidth/canvas.clientHeight);
+      // Rotate the ball about the y-axis
+      this.ball.orientation = quat(vec3(0.0, 1.0, 0.0), this.timeElapsed * HUD_NEXT_BALL_ANGULAR_VELOCITY);
+      // Our ball should already be in position; we just need to draw it
+      this.ball.draw(gl, modelWorld, worldView, projection);
+      // TODO: Draw the "Next Ball: " text
+      // FIXME: This is replay... bleh
+      this.tiles.replay.draw(gl, modelWorld, worldView, projection);
+      break;
+    case 'replay':
+      break;
+  }
+
+  // Clean up the WebGL state
+//  gl.enable(gl.DEPTH_TEST);
 }

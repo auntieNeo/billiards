@@ -48,8 +48,34 @@
 
       void main(void) {
         gl_FragColor = texture2D(textureSampler, uv);
+      }
+    </script>
+
+    <script id="tile-vert" type="x-shader/x-vertex">
+      attribute vec3 vertexPosition;
+      attribute vec2 vertexUV;
+
+      uniform mat4 modelViewMatrix;
+      uniform mat4 projectionMatrix;
+      
+      varying mediump vec2 uv;
+      
+      void main(void) {
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);
+        uv = vec2(vertexUV.s, 1.0 - vertexUV.t);  // Flip UV's because OpenGL is backwards
+      }
+    </script>
+    <script id="tile-frag" type="x-shader/x-fragment">
+      precision mediump float;
+
+      varying mediump vec2 uv;
+
+      uniform sampler2D textureSampler;
+
+      void main(void) {
+//        gl_FragColor = texture2D(textureSampler, uv);
 //        gl_FragColor = vec4(uv, 0.0, 1.0);
-//        gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);
+        gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);
       }
     </script>
 
