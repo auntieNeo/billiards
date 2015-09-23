@@ -26,6 +26,33 @@
     <script type="text/javascript" src="common/webgl-utils.js"></script>
     <script type="text/javascript" src="common/initShaders.js"></script>
 
+    <script id="loading-vert" type="x-shader/x-vertex">
+      attribute vec3 vertexPosition;
+      attribute vec2 vertexUV;
+
+      uniform mat4 projectionMatrix;
+      
+      varying mediump vec2 uv;
+      
+      void main(void) {
+        gl_Position = projectionMatrix * vec4(vertexPosition, 1.0);
+        uv = vec2(vertexUV.s, 1.0 - vertexUV.t);  // Flip UV's because OpenGL is backwards
+      }
+    </script>
+    <script id="loading-frag" type="x-shader/x-fragment">
+      precision mediump float;
+
+      varying mediump vec2 uv;
+
+      uniform sampler2D textureSampler;
+
+      void main(void) {
+        gl_FragColor = texture2D(textureSampler, uv);
+//        gl_FragColor = vec4(uv, 0.0, 1.0);
+//        gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);
+      }
+    </script>
+
     <script id="billiardtable-vert" type="x-shader/x-vertex">
       attribute vec3 vertexPosition;
       attribute vec2 vertexUV;
@@ -34,19 +61,19 @@
       uniform mat4 modelViewMatrix;
       uniform mat4 projectionMatrix;
       
-      varying highp vec2 uv;
+      varying mediump vec2 uv;
       varying vec3 normal;
       
       void main(void) {
         gl_Position = projectionMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);
-        uv = vec2(vertexUV.s, 1.0 - vertexUV.t);
+        uv = vec2(vertexUV.s, 1.0 - vertexUV.t);  // Flip UV's because OpenGL is backwards
         normal = vertexNormal;
       }
     </script>
     <script id="billiardtable-frag" type="x-shader/x-fragment">
       precision mediump float;
 
-      varying highp vec2 uv;
+      varying mediump vec2 uv;
       varying vec3 normal;
 
       uniform sampler2D textureSampler;
@@ -64,12 +91,12 @@
       uniform mat4 modelViewMatrix;
       uniform mat4 projectionMatrix;
 
-      varying highp vec2 uv;
+      varying mediump vec2 uv;
       varying vec3 normal;
       
       void main(void) {
         gl_Position = projectionMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);
-        uv = vec2(vertexUV.s, 1.0 - vertexUV.t);
+        uv = vec2(vertexUV.s, 1.0 - vertexUV.t);  // Flip UV's because OpenGL is backwards
         normal = vertexNormal;
       }
     </script>
@@ -82,19 +109,19 @@
       uniform mat4 modelViewMatrix;
       uniform mat4 projectionMatrix;
       
-      varying highp vec2 uv;
+      varying mediump vec2 uv;
       varying vec3 normal;
       
       void main(void) {
         gl_Position = projectionMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);
-        uv = vec2(vertexUV.s, 1.0 - vertexUV.t);
+        uv = vec2(vertexUV.s, 1.0 - vertexUV.t);  // Flip UV's because OpenGL is backwards
         normal = vertexNormal;
       }
     </script>
     <script id="billiardball-frag" type="x-shader/x-fragment">
       precision mediump float;
 
-      varying highp vec2 uv;
+      varying mediump vec2 uv;
       varying vec3 normal;
 
       uniform sampler2D textureSampler;
@@ -117,7 +144,7 @@
       
       void main(void) {
         gl_Position = projectionMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);
-        uv = vec2(vertexUV.s, 1.0 - vertexUV.t);
+        uv = vec2(vertexUV.s, 1.0 - vertexUV.t);  // Flip UV's because OpenGL is backwards
         normal = vertexNormal;
       }
     </script>
@@ -167,6 +194,89 @@
       }
     </script>
 
+    <script id="billiardball-sdf-smooth-vert" type="x-shader/x-vertex">
+      attribute vec3 vertexPosition;
+      attribute vec2 vertexUV;
+      attribute vec3 vertexNormal;
+      
+      uniform mat4 modelViewMatrix;
+      uniform mediump mat4 projectionMatrix;
+      
+      varying mediump vec2 uv;
+      varying vec3 normal;
+      
+      void main(void) {
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);
+        uv = vec2(vertexUV.s, 1.0 - vertexUV.t);  // Flip UV's because OpenGL is backwards
+        normal = vertexNormal;
+      }
+    </script>
+    <script id="billiardball-sdf-smooth-frag" type="x-shader/x-fragment">
+      // Signed distance fields for crisp lettering, based on Chris Green's paper
+      // See here: <http://www.valvesoftware.com/publications/2007/SIGGRAPH2007_AlphaTestedMagnification.pdf>
+      precision mediump float;
+
+      varying mediump vec2 uv;
+      varying vec3 normal;
+
+      uniform mediump mat4 projectionMatrix;
+
+      uniform sampler2D nearTexture;
+      uniform sampler2D farTexture;
+      uniform sampler2D numberMask;
+      uniform vec3 outsideColor;
+      uniform vec3 insideColor;
+
+      // NOTE: Mesa+WebGL doesn't seem to support setting uniforms this early.
+      // IDK if that's part of the WebGL spec, or a limitation of Mesa, or
+      // what. Beware magic constants in the rest of this shader.
+//      uniform float FAR_TEXTURE_DISTANCE = 0.5;  // Arbitrary, 0.5 meters
+
+      // The range of distance values for the near and far textures are
+      // completely different, so we have to smooth out over two different
+      // distances. These values are chosen through experimentation to see what
+      // looks good.
+//      uniform float SOFT_EDGE_DISTANCE_NEAR = 0.03;
+//      uniform float SOFT_EDGE_DISTANCE_FAR = 0.003;
+
+      void main(void) {
+        // Math for Z-depth from gl_fragCoord.z comes from Lengyel,
+        // "Mathematics for 3D Game Programming and Computer Graphics, Third
+        // Edition" page 114.
+        float a = projectionMatrix[2][2];
+        float b = projectionMatrix[3][2];
+        float zPos = -(((gl_FragCoord.z + a)*(-1.0/b))/1.0 + 1.0);
+        vec4 baseColor;
+        float softEdgeDistance;
+        if (zPos < -0.5 /* FAR_TEXTURE_DISTANCE */) {  
+          // Use our far texture for balls far away
+          baseColor = texture2D(farTexture, uv);
+          softEdgeDistance = 0.003;  // SOFT_EDGE_DISTANCE_FAR;
+        } else {
+          // Use our  texture for balls close up
+          baseColor = texture2D(nearTexture, uv);
+          softEdgeDistance = 0.03;  // SOFT_EDGE_DISTANCE_NEAR;
+        }
+        float distAlphaMask = baseColor.a;
+        // NOTE: In Green's paper, he uses the smoothstep function to smooth
+        // alpha values for the edges of the cutouts. We're not using cutouts,
+        // but we can use the same technique to smooth the edge by weighting
+        // each of the two colors.
+        float colorWeight = smoothstep(0.5 - softEdgeDistance, 0.5 + softEdgeDistance, distAlphaMask);
+        vec4 numberMask = texture2D(numberMask, uv);
+        if (numberMask.a > 0.9) {
+          // Make the lettering black
+          gl_FragColor = vec4(
+              colorWeight * outsideColor.rgb +
+              (1.0 - colorWeight) * vec3(0.0, 0.0, 0.0), 1.0);
+        } else {
+          gl_FragColor = vec4(
+              colorWeight * outsideColor.rgb +
+              (1.0 - colorWeight) * insideColor.rgb, 1.0);
+        }
+      }
+    </script>
+
     <script id="cuestick-vert" type="x-shader/x-vertex">
       attribute vec3 vertexPosition;
       attribute vec2 vertexUV;
@@ -175,19 +285,19 @@
       uniform mat4 modelViewMatrix;
       uniform mat4 projectionMatrix;
 
-      varying highp vec2 uv;
+      varying mediump vec2 uv;
       varying vec3 normal;
       
       void main(void) {
         gl_Position = projectionMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);
-        uv = vec2(vertexUV.s, 1.0 - vertexUV.t);
+        uv = vec2(vertexUV.s, 1.0 - vertexUV.t);  // Flip UV's because OpenGL is backwards
         normal = vertexNormal;
       }
     </script>
     <script id="cuestick-frag" type="x-shader/x-fragment">
       precision mediump float;
 
-      varying highp vec2 uv;
+      varying mediump vec2 uv;
       varying vec3 normal;
 
       uniform sampler2D textureSampler;
@@ -223,6 +333,9 @@
   </head>
   
   <body>
+    <!-- Make sure the loading screen loads early, for convenience; no sense starting without it -->
+    <img id="loading-screen" src="common/loading_screen.jpg" style="display: none;"/>
+
     <canvas id="gl-canvas"></canvas>
   </body>
   

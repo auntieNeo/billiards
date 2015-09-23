@@ -69,7 +69,18 @@ for (var i = 0; i < 5; ++i) {
                             j*(BALL_DIAMETER) - i*(BALL_RADIUS)));
   }
 }
-var DIAMOND_RACK = [];
+var DIAMOND_RACK = [
+  TRIANGLE_RACK[0],
+  TRIANGLE_RACK[1],
+  TRIANGLE_RACK[2],
+  TRIANGLE_RACK[3],
+  TRIANGLE_RACK[4],
+  TRIANGLE_RACK[5],
+  TRIANGLE_RACK[7],
+  TRIANGLE_RACK[8],
+  TRIANGLE_RACK[12]
+
+];
 
 // Gameplay modes
 var EIGHT_BALL_MODE = 1;
@@ -97,6 +108,9 @@ MAIN_CAMERA_MAX_ANGULAR_VELOCITY = Math.PI/1.0;
 MAIN_ORTHO_CAMERA_POSITION = vec3(0.0, 0.0, 1.0);
 MAIN_ORTHO_CAMERA_ORIENTATION = vec4(0.0, 0.0, 0.0, 1.0);
 
+LOADING_SCREEN_CAMERA_POSITION = MAIN_ORTHO_CAMERA_POSITION;
+LOADING_SCREEN_CAMERA_ORIENTATION = MAIN_ORTHO_CAMERA_ORIENTATION;
+
 SOUTH_POCKET_CAMERA_POSITION = vec3(0.0, 0.63724, 0.055582);
 SOUTH_POCKET_CAMERA_ORIENTATION = quat(-0.001, -0.510, -0.860, -0.002);
 SOUTH_POCKET_CAMERA_FOV = 100/2;  // Degrees
@@ -111,6 +125,7 @@ NORTH_POCKET_CAMERA_NEAR = SOUTH_POCKET_CAMERA_NEAR
 NORTH_POCKET_CAMERA_FAR = SOUTH_POCKET_CAMERA_FAR
 
 
+/*
 // Ball colors (passed to the shader)
 // Based on the color of bakelite billiard balls
 BALL_WHITE = scale(1.0/255.0, vec3(253, 242, 169));
@@ -122,6 +137,16 @@ BALL_ORANGE = scale(1.0/255.0, vec3(254, 97, 49));
 BALL_GREEN = scale(1.0/255.0, vec3(32, 99, 58));
 BALL_MAROON = scale(1.0/255.0, vec3(84, 62, 44));
 BALL_BLACK = scale(1.0/255.0, vec3(26, 16, 13));
+*/
+BALL_WHITE = scale(1.0/255.0, vec3(237, 224, 179));
+BALL_YELLOW = scale(1.0/255.0, vec3(235, 193, 0));
+BALL_BLUE = scale(1.0/255.0, vec3(50, 31, 99));
+BALL_RED = scale(1.0/255.0, vec3(189, 17, 3));
+BALL_PURPLE = scale(1.0/255.0, vec3(102, 31, 73));
+BALL_ORANGE = scale(1.0/255.0, vec3(214, 118, 0));
+BALL_GREEN = scale(1.0/255.0, vec3(15, 58, 3));
+BALL_MAROON = scale(1.0/255.0, vec3(106, 11, 10));
+BALL_BLACK = scale(1.0/255.0, vec3(14, 14, 6));
 
 // Replay constants
 REPLAY_TIME_BEFORE_HIT = 1.5;
@@ -308,10 +333,114 @@ function startGame() {
   // TODO: Create game objects
   //----------------------------------------
   // TODO: Allow user to select different game modes
-  billiardTable = new BilliardTable(EIGHT_BALL_MODE);
+  billiardTable = new BilliardTable(NINE_BALL_MODE);
 
   // Start the asynchronous game loop
   tick();
+}
+
+var loadingScreen;
+function drawLoadingScreen() {
+  if (typeof loadingScreen == 'undefined') {
+    // NOTE: The loading screen does not use our loadAssets() routine to load
+    // its assets, since it needs to be drawing the loading screen before
+    // loadAssets() starts working
+    loadingScreen = {};
+
+    // Compile our shader program
+    loadingScreen.shader = initShaders(gl, "loading-vert", "loading-frag");
+    // Get the uniform and attribute locations
+    loadingScreen.shader.attributes = {};
+    loadingScreen.shader.attributes.vertexPosition = gl.getAttribLocation(loadingScreen.shader, "vertexPosition");
+    loadingScreen.shader.attributes.vertexUV = gl.getAttribLocation(loadingScreen.shader, "vertexUV");
+    loadingScreen.shader.uniforms = {};
+    loadingScreen.shader.uniforms.projectionMatrix = gl.getUniformLocation(loadingScreen.shader, "projectionMatrix");
+
+    // Make an orthographic camera that clips our image onto the screen
+    loadingScreen.camera = new Camera(
+        {
+          type: 'orthographicClip',
+          left: -1.0,
+          right: 1.0,
+          bottom: -1.0,
+          top: 1.0,
+          near: 0.01,
+          far: 100.0
+        },
+        LOADING_SCREEN_CAMERA_POSITION,
+        LOADING_SCREEN_CAMERA_ORIENTATION);
+
+    // Get the loading image from the DOM, which avoids all the asynchronous
+    // hassle of loading it ourselves
+    var loadingImage = document.getElementById("loading-screen");
+    // Load the texture into WebGL
+    loadingScreen.texture = loadTexture(loadingImage);
+
+    // Load our verticies (the four corners of the texture, with UV values)
+    // into WebGL
+    //
+    // The format for each vertex is
+    //
+    //    _____ _____ _____ _____ _____
+    //   | p_x | p_y | p_z | t_u | t_v |
+    //   '-----'-----'-----'-----'-----'
+    //         position       texture
+    //
+    var verticies = [
+      -1.0, -1.0, -1.0, 0.0, 0.0,  // Bottom left
+      1.0, -1.0, -1.0, 1.0, 0.0,  // Bottom right
+      1.0, 1.0, -1.0, 1.0, 1.0,  // Top right
+      -1.0, 1.0, -1.0, 0.0, 1.0,  // Top left
+    ];
+    var elements = [
+      0, 1, 2,
+      2, 3, 0
+    ];
+    var elementsUint = new Int16Array(elements.length);
+    for (var i = 0; i < elements.length; ++i) {
+      elementsUint[i] = elements[i];
+    }
+    loadingScreen.vertexAttributesBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, loadingScreen.vertexAttributesBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, flatten(verticies), gl.STATIC_DRAW);
+    loadingScreen.vertexElementsBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, loadingScreen.vertexElementsBuffer);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, elementsUint, gl.STATIC_DRAW);
+  }
+
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+  // Use our shader program
+  gl.useProgram(loadingScreen.shader);
+  // Use the texture we loaded
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, loadingScreen.texture);
+  gl.uniform1i(loadingScreen.shader.uniforms.textureSampler, 0);
+  // Use our verticies
+  gl.bindBuffer(gl.ARRAY_BUFFER, loadingScreen.vertexAttributesBuffer);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, loadingScreen.vertexElementsBuffer);
+  // Use our projection matrix
+  gl.uniformMatrix4fv(loadingScreen.shader.uniforms.projectionMatrix, false, flatten(loadingScreen.camera.projectionTransformation(canvas.clientWidth/canvas.clientHeight).peek()));
+/*  gl.uniformMatrix4fv(loadingScreen.shader.uniforms.projectionMatrix, false, flatten(ortho(-1.0, 1.0,
+                                                                                           -1.0, 1.0,
+                                                                                           0.01, 100.0))); */
+  // Configure the vertex attributes for position and uv
+  gl.enableVertexAttribArray(loadingScreen.shader.attributes.vertexPosition);
+  gl.enableVertexAttribArray(loadingScreen.shader.attributes.vertexUV);
+  gl.vertexAttribPointer(loadingScreen.shader.attributes.vertexPosition,
+                         3,         // vec3
+                         gl.FLOAT,  // 32bit floating point
+                         false,     // Don't normalize values
+                         4 * 5,     // Stride for five 32-bit values per-vertex
+                         4 * 0);    // Position starts at the first value stored
+  gl.vertexAttribPointer(loadingScreen.shader.attributes.vertexUV,
+                         2,         // vec2
+                         gl.FLOAT,  // 32bit floating point
+                         false,     // Don't normalize values
+                         4 * 5,     // Stride for five 32-bit values per-vertex
+                         4 * 3);    // Texture coordinate starts at the forth value stored
+  // Draw the triangles
+  gl.drawElements(gl.TRIANGLES, 6 /* two triangles */, gl.UNSIGNED_SHORT, 0);
 }
 
 var geometryAssets = [
@@ -393,6 +522,9 @@ var shaderAssets = [ { name: "billiardtable", vert: "billiardtable-vert", frag: 
                      { name: "billiardball-sdf", vert: "billiardball-sdf-vert", frag: "billiardball-sdf-frag",
                        attributes: [ "vertexPosition", "vertexUV", "vertexNormal" ],
                        uniforms: [ "modelViewMatrix", "projectionMatrix", "nearTexture", "farTexture", "numberMask", "insideColor", "outsideColor" ] },
+                     { name: "billiardball-sdf-smooth", vert: "billiardball-sdf-smooth-vert", frag: "billiardball-sdf-smooth-frag",
+                       attributes: [ "vertexPosition", "vertexUV", "vertexNormal" ],
+                       uniforms: [ "modelViewMatrix", "projectionMatrix", "nearTexture", "farTexture", "numberMask", "insideColor", "outsideColor" ] },
                      { name: "cuestick", vert: "cuestick-vert", frag: "cuestick-frag",
                        attributes: [ "vertexPosition", "vertexUV", "vertexNormal" ],
                        uniforms: [ "modelViewMatrix", "projectionMatrix", "fadeAlpha" ] },
@@ -405,6 +537,8 @@ var assetHandle = null;
 var textureImage = null;
 var assets = {};
 function loadAssets() {
+  // TODO: Display loading screen while assets are loading
+  this.drawLoadingScreen();
   var i = assetIndex;
   var message = "Loading...";
   var assetArray;
@@ -429,6 +563,8 @@ function loadAssets() {
           assetArray = soundAssets;
         } else {
           i -= soundAssets.length;
+          // Free the loading screen texture
+//          gl.deleteTexture(loadingScreen.texture);  // XXX
           // All assets have been loaded; proceed to the game loop
           startGame();
           return;
@@ -700,7 +836,6 @@ function loadObjMesh(text) {
     // For the time being, we're using a triangle mesh. These are much simpler
     // to export from Blender.
     // TODO: Use triangle strips and triangle fans
-    // FIXME: This... really doesn't do much
     vertexIndices[i] = mesh.indices[i];
   }
 
@@ -914,7 +1049,7 @@ var BilliardBall = function(number, initialPosition) {
   if (ENABLE_SDF) {
     this.nearTexture = "common/billiard_ball_" + number + "_sdf_near.png";
     this.farTexture = "common/billiard_ball_" + number + "_sdf_far.png";
-    shaderProgram = "billiardball-sdf";
+    shaderProgram = "billiardball-sdf-smooth";
     switch (number) {
       case 0:
         // White
@@ -1010,6 +1145,7 @@ BilliardBall.prototype.putInPlay = function(position) {
   } else {
     this.position = vec3(position[0], position[1], BALL_RADIUS);
   }
+  this.velocity = vec3(0.0, 0.0, 0.0);
   // Remove all of the properties related to pocketed status
   this.pocket = undefined;
   this.pocketName = undefined;
@@ -1298,8 +1434,37 @@ var BilliardTable = function(gamemode, position, orientation) {
       }
       break;
     case NINE_BALL_MODE:
+      // Make objects for each ball
+      this.balls = [];
+      // Place the cue ball somewhere in "the kitchen"
+      this.balls.push(new BilliardBall(0, vec3((-3/8) * TABLE_LENGTH, 0.0)));
+      // Make a set of unracked balls
+      var unrackedBalls = new Set();
+      for (var i = 1; i < NINE_BALL_NUM_BALLS; ++i) {
+        unrackedBalls.add(i);
+      }
+      // Place the One ball at the front
+      this.balls.push(new BilliardBall(1, vec3(DIAMOND_RACK[0][0], DIAMOND_RACK[0][1])));
+      unrackedBalls.delete(1);
+      // Place the Nine ball in the middle
+      this.balls.push(new BilliardBall(9, vec3(DIAMOND_RACK[4][0], DIAMOND_RACK[4][1])));
+      unrackedBalls.delete(9);
+      // Place the rest of the balls at random, being careful to avoid placing
+      // balls where the Nine ball is
+      var nextPosition = 1;
+      while (unrackedBalls.size > 0) {
+        var ballNumber = takeRandomFromSet(unrackedBalls);
+        this.balls.push(new BilliardBall(ballNumber, vec3(DIAMOND_RACK[nextPosition][0], DIAMOND_RACK[nextPosition][1])));
+        // Carefully avoid the Nine ball position and the corner positions
+        if (nextPosition == 3) {
+          nextPosition = 5;  // Avoid the nine ball
+        } else {
+          nextPosition += 1;
+        }
+      }
       break;
     case STRAIGHT_POOL_MODE:
+      // TODO
       break;
     default:
       window.alert("Unknown game mode!");
@@ -1485,6 +1650,10 @@ BilliardTable.prototype.tick = function(dt) {
         // another ball. That's no good.
         break;
       }
+      this.balls[0].putInPlay(this.mouseStart);
+      // Put the cue ball in our broad-phase collision list
+      this.xBalls.push(this.balls[0]);
+      this.yBalls.push(this.balls[0]);
       this.mouseStart = undefined;  // Consume the click input
     case 'postInitialDropCueBall':
       // Put the cue ball in our broad-phase collision list
@@ -1500,7 +1669,7 @@ BilliardTable.prototype.tick = function(dt) {
         }
         if (typeof this.mouseStart == 'undefined') {
           break;  // No clicks yet
-        } else if (!this.checkDropCueBall(this.balls[0], this.mousePos,
+        } else if (!this.checkDropCueBall(this.balls[0], this.mouseStart,
               TABLE_WIDTH/2 - BALL_RADIUS, -TABLE_WIDTH/2 + BALL_RADIUS,
               TABLE_LENGTH/2 - BALL_RADIUS, -TABLE_LENGTH/2 + BALL_RADIUS)) {
           // The user tried to place the cue ball in a pocket or on top of
@@ -1508,6 +1677,8 @@ BilliardTable.prototype.tick = function(dt) {
           break;
         } else {
           this.mouseStart = undefined;  // Consume the click input
+          // Put the cue ball in play where the user wanted it
+          this.balls[0].putInPlay(this.mouseStart);
           // Put the cue ball in our broad-phase collision list
           this.xBalls.push(this.balls[0]);
           this.yBalls.push(this.balls[0]);
@@ -1533,16 +1704,16 @@ BilliardTable.prototype.tick = function(dt) {
         break;
       }
     case 'cueStickCollision':
-      this.balls[0].velocity = add(this.balls[0].velocity, this.cueStick.collisionVelocity);
+      this.balls[0].velocity = this.cueStick.collisionVelocity;
     case 'preSimulation':
       // Reset all of the ball first hit times
       for (var i = 0; i < this.balls.length; ++i) {
         this.balls[i].firstHitTime = undefined;
       }
-      // Save the initial simulation state for our replays
-      this.initialSimulationState = this.saveState();
       // Start simulating the physics and animating the balls
       this.startSimulation();
+      // Save the initial simulation state for our replays
+      this.initialSimulationState = this.saveState();
     case 'simulation':
       this.state = 'simulation';
       // Wait for all of the balls to settle down
@@ -1567,8 +1738,6 @@ BilliardTable.prototype.tick = function(dt) {
       for (var i = 0; i < this.pocketedBalls.length; ++i) {
         if (this.pocketedBalls[i].ball == 0) {
           this.cueBallPocketed = true;
-          // Remove the cue ball from the pocket
-          this.pocketedBalls.splice(i, 1);
         }
         var ball = this.balls[this.pocketedBalls[i].ball];
         var pocketName = ball.pocketName;
@@ -1613,6 +1782,7 @@ BilliardTable.prototype.tick = function(dt) {
       this.pocketTimes.sort(function(a, b) {
         return a - b;
       });
+      this.simulationEndTime = this.simulationElapsedTime;
     case 'startReplay':
       // Tell the cameras to watch the replay action
       this.setCameraReplay();
@@ -1624,14 +1794,15 @@ BilliardTable.prototype.tick = function(dt) {
       this.restoreState(this.initialSimulationState);
       // Begin the simulation in replay mode
       this.startReplay();
+      window.alert("this.simulationEndTime: " + this.simulationEndTime);
     case 'initialReplay':
       this.state = 'initialReplay';
       // TODO: We need to animate the cue stick before starting the simulation
       // The replay simulates a lot of physics, but no game logic is advanced
-      // TODO: Skip replay if nothing happened
       // TODO: Check for times of interest and save the state at those times
-      if (this.simulationElapsedTime > this.pocketTimes[this.pocketTimes.length - 1] + REPLAY_TIME_AFTER_LAST_POCKET) {
-        // Stop the initial replay some short time after the last ball has been
+      console.log("Simulation elapsed time: " + this.simulationElapsedTime);
+      if (this.simulationElapsedTime > this.simulationEndTime) {
+        // Stop the initial replay some time after the last ball has been
         // pocketed
       } else {
         break;
@@ -1642,8 +1813,11 @@ BilliardTable.prototype.tick = function(dt) {
       // Restore the state from before playing the replays (and pray it works)
       this.restoreState(this.nextTurn);
     case 'nextTurnSetup':
-      // TODO: Determine what turn is next (i.e. cue shot, cue ball drop, or break shot)
+      // Get out of the replay camera
+      this.setCameraInteractive();
+      // Determine what turn is next (i.e. cue shot, cue ball drop, or break shot)
       if (this.cueBallPocketed) {
+        this.cueBallPocketed = false;
         // The cue ball was pocketed; we need to drop it somewhere
         this.balls[0].putInPlay(vec2(0.0, 0.0));
         this.state = 'dropCueBall';
@@ -1716,6 +1890,7 @@ BilliardTable.prototype.checkDropCueBall = function(ball, position, north, south
 }
 BilliardTable.prototype.startSimulation = function() {
   this.simulationState = 'startSimulation';
+  this.simulationElapsedTime = -dt;  // -dt + dt = 0.0
 }
 BilliardTable.prototype.startReplay = function() {
   this.simulationState = 'startReplay';
@@ -1729,7 +1904,6 @@ BilliardTable.prototype.tickSimulation = function(dt) {
     case 'stopped':
       break;
     case 'startSimulation':
-      this.simulationElapsedTime = -dt;  // -dt + dt = 0.0
       this.isReplay = false;
     case 'startReplay':
       if (this.simulationState == 'startReplay') {
@@ -1865,6 +2039,7 @@ BilliardTable.prototype.tickSimulation = function(dt) {
       for (var i = this.xBalls.length - 1; i >= 0; --i) {
         if (this.xBalls[i].position[0] > SOUTHEAST_POCKET[0] - POCKET_RADIUS) {
           eastPocketNeighborhood.add(this.xBalls[i].number);
+          window.alert("Ball in east pocket neighborhood: " + this.xBalls[i].number);
           continue;
         }
         break;
@@ -1874,6 +2049,7 @@ BilliardTable.prototype.tickSimulation = function(dt) {
       for (var i = 0; i < this.xBalls.length; ++i) {
         if (this.xBalls[i].position[0] < SOUTHWEST_POCKET[0] + POCKET_RADIUS) {
           westPocketNeighborhood.add(this.xBalls[i].number);
+          window.alert("Ball in west pocket neighborhood: " + this.xBalls[i].number);
           continue;
         }
         break;
@@ -1883,6 +2059,7 @@ BilliardTable.prototype.tickSimulation = function(dt) {
       for (var i = 0; i < this.yBalls.length; ++i) {
         if (this.yBalls[i].position[1] < Math.max(SOUTH_POCKET[1], SOUTHEAST_POCKET[1]) + POCKET_RADIUS) {
           southPocketNeighborhood.add(this.yBalls[i].number);
+          window.alert("Ball in south pocket neighborhood: " + this.xBalls[i].number);
           continue;
         }
         break;
@@ -1892,6 +2069,7 @@ BilliardTable.prototype.tickSimulation = function(dt) {
       for (var i = this.yBalls.length - 1; i >= 0; --i) {
         if (this.yBalls[i].position[1] > Math.min(NORTH_POCKET[1], NORTHEAST_POCKET[1]) - POCKET_RADIUS) {
           northPocketNeighborhood.add(this.yBalls[i].number);
+          window.alert("Ball in north pocket neighborhood: " + this.xBalls[i].number);
           continue;
         }
         break;
@@ -1950,6 +2128,62 @@ BilliardTable.prototype.tickSimulation = function(dt) {
           billiardTable.pocketBall(ball, "NORTH_POCKET");
         }
       });
+
+      msg = "";
+      var foundSome = false;
+
+      msg += "Balls in north pocket neighborhood: ";
+      northPocketNeighborhood.forEach(function(ball) {
+        msg += "  " + ball;
+        foundSome = true;
+      });
+      msg += "\n";
+      msg += "Balls in south pocket neighborhood: ";
+      southPocketNeighborhood.forEach(function(ball) {
+        msg += "  " + ball;
+        foundSome = true;
+      });
+      msg += "\n";
+      msg += "Balls in east pocket neighborhood: ";
+      eastPocketNeighborhood.forEach(function(ball) {
+        msg += "  " + ball;
+        foundSome = true;
+      });
+      msg += "\n";
+      msg += "Balls in west pocket neighborhood: ";
+      westPocketNeighborhood.forEach(function(ball) {
+        msg += "  " + ball;
+        foundSome = true;
+      });
+      msg += "\n";
+      msg += "Balls in southeast pocket neighborhood: ";
+      southeastPocketNeighborhood.forEach(function(ball) {
+        msg += "  " + ball;
+        foundSome = true;
+      });
+      msg += "\n";
+      msg += "Balls in southwest pocket neighborhood: ";
+      southwestPocketNeighborhood.forEach(function(ball) {
+        msg += "  " + ball;
+        foundSome = true;
+      });
+      msg += "\n";
+      msg += "Balls in northeast pocket neighborhood: ";
+      northeastPocketNeighborhood.forEach(function(ball) {
+        msg += "  " + ball;
+        foundSome = true;
+      });
+      msg += "\n";
+      msg += "Balls in northwest pocket neighborhood: ";
+      northwestPocketNeighborhood.forEach(function(ball) {
+        msg += "  " + ball;
+        foundSome = true;
+      });
+      msg += "\n";
+      if (foundSome) {
+        window.alert(msg);
+      }
+
 
       break;
     default:
@@ -2047,14 +2281,25 @@ BilliardTable.prototype.handleEdgeCollision = function(ball, edge) {
   // Only one edge to consider; the normal is perpendicular to the wall
   var collisionNormal = normalize(cross(vec3(subtract(edge[1], edge[0])), vec3(0.0, 0.0, 1.0)).slice(0,2));
   // Compute the reflection for the velocity
+  var originalVelocity = ball.velocity.slice();
   ball.velocity = reflection(ball.velocity, vec3(collisionNormal, 0.0));
-  // Apply coefficient of restitution (bounciness)
-  ball.velocity = scale(BALL_CLOTH_COEFFICIENT_OF_RESTITUTION, ball.velocity);
   // Get the ball out of the wall
   // NOTE: We could probably try harder at this approximation and account for
   // how far the ball has moved in the last dt, but this is good enough
   // good enough
   ball.position = add(ball.position, scale(MAX_DT, ball.velocity));
+  var same = true;
+  for (var i = 0; i < ball.velocity.length; ++i) {
+    if (ball.velocity[i] != originalVelocity[i]) {
+      same = false;
+      break;
+    }
+  }
+  if (!same) {  // XXX
+    // Apply coefficient of restitution (bounciness) only if the reflection
+    // actually changed the velocity
+    ball.velocity = scale(BALL_CLOTH_COEFFICIENT_OF_RESTITUTION, ball.velocity);  // FIXME: Don't apply coefficient of restitution if the ball wasn't reflected
+  }
   // TODO: Play an appropriate sound
   if (typeof ball.firstHitTime == 'undefined') {
     // We're the first hit; store the time
@@ -2063,12 +2308,23 @@ BilliardTable.prototype.handleEdgeCollision = function(ball, edge) {
 }
 BilliardTable.prototype.handleCornerCollision = function(ball, corner, collisionNormal) {
   // Compute the reflection for the velocity
+  var originalVelocity = ball.velocity.slice();
   ball.velocity = reflection(ball.velocity, vec3(collisionNormal, 0.0));
-  // Apply coefficient of restitution (bounciness)
-  ball.velocity = scale(BALL_CLOTH_COEFFICIENT_OF_RESTITUTION, ball.velocity);
   // Get the ball out of the corner
   var cornerToBallCenter = subtract(vec2(ball.position), corner);
 //  ball.position = add(ball.position, vec3(scale(BALL_RADIUS-length(cornerToBallCenter), normalize(cornerToBallCenter))));
+  var same = true;
+  for (var i = 0; i < ball.velocity.length; ++i) {
+    if (ball.velocity[i] != originalVelocity[i]) {
+      same = false;
+      break;
+    }
+  }
+  if (!same) {
+    // Apply coefficient of restitution (bounciness) only if the reflection
+    // actually changed the velocity
+    ball.velocity = scale(BALL_CLOTH_COEFFICIENT_OF_RESTITUTION, ball.velocity);  // FIXME: Don't apply coefficient of restitution if the ball wasn't reflected
+  }
   if (typeof ball.firstHitTime == 'undefined') {
     // We're the first hit; store the time
     ball.firstHitTime = this.simulationElapsedTime;
@@ -2415,9 +2671,29 @@ Camera.prototype.projectionTransformation = function(aspect) {
                               this.projection.bottom - fudge/2, this.projection.top + fudge/2,
                               this.projection.near, this.projection.far));
       } else {
-        // The table is taller than the screen is tall
+        // The area we're projecting is taller than the screen is tall
         var fudge = height * aspect - width;
         projection.push(ortho(this.projection.left - fudge/2, this.projection.right + fudge/2,
+                              this.projection.bottom, this.projection.top,
+                              this.projection.near, this.projection.far));
+      }
+      break;
+    case 'orthographicClip':
+      // Same as orthographic above, but instead of trying to fit the given
+      // area into the view, we clip it to the maximum area without changing
+      // the aspect ratio
+      var width = this.projection.right - this.projection.left;
+      var height = this.projection.top - this.projection.bottom;
+      if (width / height < aspect) {
+        // The area we're projecting is taller than the screen is tall
+        var fudge = height - width/aspect;
+        projection.push(ortho(this.projection.left, this.projection.right,
+                              this.projection.bottom + fudge/2, this.projection.top - fudge/2,
+                              this.projection.near, this.projection.far));
+      } else {
+        // The area we're projecting is wider than the screen is wide
+        var fudge = width - aspect*height;
+        projection.push(ortho(this.projection.left + fudge/2, this.projection.right - fudge/2,
                               this.projection.bottom, this.projection.top,
                               this.projection.near, this.projection.far));
       }
