@@ -97,13 +97,14 @@ var LARGE_DT = MAX_DT * 10;  // Arbitrary limit for frame drop warning
 var DETERMINISTIC_DT = true;
 
 // Camera data (copied from Blender)
-MAIN_CAMERA_POSITION = vec3(3.01678, -1.58346, 1.5657);
+MAIN_CAMERA_POSITION = vec3(-4.18173, -1.67159, 2.30525);
 MAIN_CAMERA_ORIENTATION = vec4(0.463, 0.275, 0.437, 0.720);
 MAIN_CAMERA_FOV = 49.134/2;  // Degrees
 MAIN_CAMERA_NEAR = .1;
 MAIN_CAMERA_FAR = 100;
 MAIN_CAMERA_ANGULAR_ACCELERATION = 3.0;
 MAIN_CAMERA_MAX_ANGULAR_VELOCITY = Math.PI/1.0;
+MAIN_CAMERA_FUDGE_VECTOR = vec3(0.0, 0.0, -0.4);  // Point the camera further underneath the table
 
 MAIN_ORTHO_CAMERA_POSITION = vec3(0.0, 0.0, 1.0);
 MAIN_ORTHO_CAMERA_ORIENTATION = vec4(0.0, 0.0, 0.0, 1.0);
@@ -1533,7 +1534,8 @@ var BilliardTable = function(gamemode, position, orientation) {
       this, vec3(0.0, 0.0, 1.0),
       MAIN_CAMERA_ANGULAR_ACCELERATION,
       MAIN_CAMERA_ANGULAR_ACCELERATION*2,  // friction
-      MAIN_CAMERA_MAX_ANGULAR_VELOCITY);
+      MAIN_CAMERA_MAX_ANGULAR_VELOCITY,
+      MAIN_CAMERA_FUDGE_VECTOR);
   this.currentCamera = this.cameras.mainOrthographic;
   this.currentCameraAngle = 'orthographic';
   this.cameraState = 'interaction';  // XXX: Change this to "pre-game" or "idle"
@@ -2733,7 +2735,9 @@ Camera.prototype.projectionTransformation = function(aspect) {
   return projection;
 }
 // TODO: Change lookAt into a utility function that returns a quaternion rotation
-Camera.prototype.lookAtSmooth = function(object, preserveRoll) {
+Camera.prototype.lookAtSmooth = function(object, fudge, preserveRoll) {
+  if (typeof fudge == 'undefined')
+    fudge = vec3(0.0, 0.0, 0.0);
   // NOTE: This naive implementation is close, but it doesn't work quite right.
   // It tends to follow an object slowly rather than looking at it instantly. I
   // have no idea why, but I'm not complaining because it looks really good for
@@ -2759,7 +2763,7 @@ Camera.prototype.lookAtSmooth = function(object, preserveRoll) {
   // the current camera direction and the desired direction and constructing a
   // quaternion rotation.
   var cameraDirection = vec4(0.0, 0.0, -1.0, 0.0);
-  var objectDirection = vec4(subtract(object.getWorldPosition(), this.getWorldPosition()));
+  var objectDirection = vec4(subtract(add(fudge, object.getWorldPosition()), this.getWorldPosition()));
   objectDirection[3] = 0.0;
   objectDirection = mult(objectDirection, quatToMatrix(qinverse(this.getWorldOrientation())));
   objectDirection = normalize(objectDirection);
@@ -2845,23 +2849,25 @@ Camera.prototype.screenPointToWorldRay = function(point, width, height) {
   // TODO: Take a breather.
   return worldSpaceRay;
 }
-Camera.prototype.follow = function(object) {
+Camera.prototype.follow = function(object, fudgeVector) {
   // Look at and follow the object (in tick())
   this.animation = {
     type: "follow",
-    object: object
+    object: object,
+    fudge: fudgeVector
   }
 }
-Camera.prototype.rotateAbout = function(object, axis, angularVelocity) {
+Camera.prototype.rotateAbout = function(object, axis, angularVelocity, fudgeVector) {
   // Rotate about the object (in tick())
   this.animation = {
     type: "rotateAbout",
     object: object,
     axis: axis.slice(),
-    angularVelocity: angularVelocity
+    angularVelocity: angularVelocity,
+    fudge: fudgeVector
   }
 }
-Camera.prototype.interactiveRotate = function(object, axis, angularAcceleration, angularFrictionAcceleration, maxAngularVelocity) {
+Camera.prototype.interactiveRotate = function(object, axis, angularAcceleration, angularFrictionAcceleration, maxAngularVelocity, fudgeVector) {
   this.animation = {
     type: "interactiveRotate",
     object: object,
@@ -2872,6 +2878,7 @@ Camera.prototype.interactiveRotate = function(object, axis, angularAcceleration,
     angularVelocity: 0.0,
     angularDisplacement: 0.0,
     initialPosition: this.position,
+    fudge: fudgeVector
   }
 }
 Camera.prototype.transitionTo = function(camera, stepFunction, callback) {
@@ -2895,7 +2902,7 @@ Camera.prototype.tick = function(dt) {
   // Animate the camera
   switch (this.animation.type) {
     case 'follow':
-      this.lookAtSmooth(this.animation.object);
+      this.lookAtSmooth(this.animation.object, this.animation.fudge);
       break;
     case 'rotateAbout':
       // FIXME: Don't forget the position; we don't want any rounding errors
@@ -2908,13 +2915,13 @@ Camera.prototype.tick = function(dt) {
       // space)
       transformationStack.push(quatToMatrix(quat(this.animation.axis, angularDisplacement)));
       // Translate the origin to the object's space
-      transformationStack.push(translate(scale(-1, this.animation.object.getWorldPosition())));
+      transformationStack.push(translate(scale(-1, add(this.animation.fudge, this.animation.object.getWorldPosition()))));
 
       // Apply the transformations to the camera position
       this.position = vec3(mult(vec4(this.position), transformationStack.peek()));
 
       // Look at the object
-      this.lookAtSmooth(this.animation.object);
+      this.lookAtSmooth(this.animation.object, this.animation.fudge);
 
       break;
     case 'interactiveRotate':
@@ -2951,7 +2958,7 @@ Camera.prototype.tick = function(dt) {
       // TODO: Compute the current position from the angular displacement
       this.position = vec3(mult(vec4(this.animation.initialPosition), quatToMatrix(quat(this.animation.axis, this.animation.angularDisplacement))));
 
-      this.lookAtSmooth(this.animation.object);
+      this.lookAtSmooth(this.animation.object, this.animation.fudge);
       break;
   }
 }
