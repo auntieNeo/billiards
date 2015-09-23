@@ -1661,21 +1661,22 @@ BilliardTable.prototype.tick = function(dt) {
       this.state = 'initialDropCueBall';
       // Check for cursor position and, if it is inside the 'kitchen'
       // move the cue ball to that position
-      if (typeof this.mousePos != 'undefined') {
-        this.dropCueBall(this.balls[0], this.mousePos,
+      if (typeof this.cursorPos != 'undefined') {
+        var tablePos = this.tableCoordinatesFromCursor(this.cursorPos[0], this.cursorPos[1]);
+        this.dropCueBall(this.balls[0], tablePos,
             TABLE_WIDTH/2 - BALL_RADIUS, -TABLE_WIDTH/2 + BALL_RADIUS,
             -TABLE_LENGTH/4 - BALL_RADIUS, -TABLE_LENGTH/2 + BALL_RADIUS);
       }
       if (typeof this.mouseStart == 'undefined') {
         break;  // No clicks yet
-      } else if (!this.checkDropCueBall(this.balls[0], this.mousePos,
+      } else if (!this.checkDropCueBall(this.balls[0], this.mouseStart,
             TABLE_WIDTH/2 - BALL_RADIUS, -TABLE_WIDTH/2 + BALL_RADIUS,
             -TABLE_LENGTH/4 - BALL_RADIUS, -TABLE_LENGTH/2 + BALL_RADIUS)) {
         // The user tried to place the cue ball in a pocket or on top of
         // another ball. That's no good.
         break;
       }
-      this.balls[0].putInPlay(this.mousePos);
+      this.balls[0].putInPlay(this.mouseStart);
       // Put the cue ball in our broad-phase collision list
       this.xBalls.push(this.balls[0]);
       this.yBalls.push(this.balls[0]);
@@ -1688,8 +1689,9 @@ BilliardTable.prototype.tick = function(dt) {
           this.state == 'startDropCueBall') {
         this.state = 'dropCueBall';
         // Have the user drop the cue ball anywhere
-        if (typeof this.mousePos != 'undefined') {
-          this.dropCueBall(this.balls[0], this.mousePos,
+        if (typeof this.cursorPos != 'undefined') {
+          var tablePos = this.tableCoordinatesFromCursor(this.cursorPos[0], this.cursorPos[1]);
+          this.dropCueBall(this.balls[0], tablePos,
               TABLE_WIDTH/2 - BALL_RADIUS, -TABLE_WIDTH/2 + BALL_RADIUS,
               TABLE_LENGTH/2 - BALL_RADIUS, -TABLE_LENGTH/2 + BALL_RADIUS);
         }
@@ -1715,7 +1717,10 @@ BilliardTable.prototype.tick = function(dt) {
       this.cueStick.startSetupShot();
     case 'setupShot':
       this.state = 'setupShot';
-      this.cueStick.setCursorPosition(this.mousePos);
+      if (typeof this.cursorPos != 'undefined') {
+        var tablePos = this.tableCoordinatesFromCursor(this.cursorPos[0], this.cursorPos[1]);
+        this.cueStick.setCursorPosition(tablePos);
+      }
       if (typeof this.mouseStart == 'undefined') {
         break;  // No clicks yet
       }
@@ -2420,7 +2425,7 @@ BilliardTable.prototype.tickCameras = function(dt) {
 }
 // Various user input event handlers for BilliardTable (most user interaction
 // is processed here)
-BilliardTable.prototype.tableCoordinatesFromMouseClick = function(x, y) {
+BilliardTable.prototype.tableCoordinatesFromCursor = function(x, y) {
   // Find the point that the ray from the click intersects the billiard table
   var ray = this.currentCamera.screenPointToWorldRay(
       vec2(x, y),
@@ -2431,18 +2436,19 @@ BilliardTable.prototype.tableCoordinatesFromMouseClick = function(x, y) {
   return intersectionPoint;
 }
 BilliardTable.prototype.mouseDownEvent = function(event) {
-  this.mouseStart = this.tableCoordinatesFromMouseClick(event.clientX, event.clientY);
+  this.mouseStart = this.tableCoordinatesFromCursor(event.clientX, event.clientY);
 }
 BilliardTable.prototype.mouseMoveEvent = function(event) {
-  this.mousePos = this.tableCoordinatesFromMouseClick(event.clientX, event.clientY);
+  this.cursorPos = vec2(event.clientX, event.clientY);
 }
 BilliardTable.prototype.mouseLeaveEvent = function(event) {
   this.mouseStart = undefined;
-  this.mousePos = undefined;
+  this.cursorPos = undefined;
   this.mouseDown = undefined;
+  this.keysDepressed = {};  // Deadman's switch for camera controls, etc.
 }
 BilliardTable.prototype.mouseUpEvent = function(event) {
-  this.mouseEnd = this.tableCoordinatesFromMouseClick(event.clientX, event.clientY);
+  this.mouseEnd = this.tableCoordinatesFromCursor(event.clientX, event.clientY);
   if (typeof this.mouseStart != 'undefined') {
     this.mouseDragVector = subtract(this.mouseEnd, this.mouseStart);
     debug.drawLine(vec3(this.mouseStart[0], this.mouseStart[1], 0.01), vec3(this.mouseEnd[0], this.mouseEnd[1], 0.01));
