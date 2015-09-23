@@ -1650,15 +1650,12 @@ BilliardTable.prototype.tick = function(dt) {
         // another ball. That's no good.
         break;
       }
-      this.balls[0].putInPlay(this.mouseStart);
+      this.balls[0].putInPlay(this.mousePos);
       // Put the cue ball in our broad-phase collision list
       this.xBalls.push(this.balls[0]);
       this.yBalls.push(this.balls[0]);
       this.mouseStart = undefined;  // Consume the click input
     case 'postInitialDropCueBall':
-      // Put the cue ball in our broad-phase collision list
-      this.xBalls.push(this.balls[0]);
-      this.yBalls.push(this.balls[0]);
     case 'dropCueBall':
       if (this.state == 'dropCueBall') {
         // Have the user drop the cue ball anywhere
@@ -1676,9 +1673,9 @@ BilliardTable.prototype.tick = function(dt) {
           // another ball. That's no good.
           break;
         } else {
-          this.mouseStart = undefined;  // Consume the click input
           // Put the cue ball in play where the user wanted it
           this.balls[0].putInPlay(this.mouseStart);
+          this.mouseStart = undefined;  // Consume the click input
           // Put the cue ball in our broad-phase collision list
           this.xBalls.push(this.balls[0]);
           this.yBalls.push(this.balls[0]);
@@ -1704,6 +1701,7 @@ BilliardTable.prototype.tick = function(dt) {
         break;
       }
     case 'cueStickCollision':
+      console.log("this.cueStick.collisionVelocity: " + this.cueStick.collisionVelocity);
       this.balls[0].velocity = this.cueStick.collisionVelocity;
     case 'preSimulation':
       // Reset all of the ball first hit times
@@ -1884,8 +1882,6 @@ BilliardTable.prototype.checkDropCueBall = function(ball, position, north, south
   }
 
   // Nothing bad found. We can drop the ball now.
-  ball.position = vec3(position[0], position[1], BALL_RADIUS);
-
   return true;
 }
 BilliardTable.prototype.startSimulation = function() {
