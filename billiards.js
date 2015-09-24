@@ -3608,28 +3608,25 @@ var isStriped = function(ballNumber) {
   return false;
 }
 
-// Some UV positions/dimensions for tiles (taken from Blender)
-TEXT_TEXTURE_DIMENSIONS = 4096.0;  // 4096 x 4096 in the original texture
+// Some constants for text
+//REPLAY_TEXTURE = "common/replay_text_sdf.png";
 REPLAY_TEXTURE = "common/billiard_ball_10_sdf_near.png";
 //REPLAY_TEXTURE = "common/menu_text_sdf.png";
 //REPLAY_TEXTURE = "common/test.png";  // XXX
-REPLAY_TOP_LEFT = vec2(403.00, 3291.00);
-REPLAY_WIDTH = 2160.0;
-REPLAY_HEIGHT = 342.0;
+REPLAY_TEXTURE_WIDTH = 4096.0;
+REPLAY_TEXTURE_HEIGHT = 512.0;
 REPLAY_COLOR = vec3(0.7, 0.0, 0.0);
 
+//NEXT_BALL_TEXTURE = "common/next_ball_text_sdf.png";
+NEXT_BALL_TEXTURE = "common/billiard_ball_8_sdf_near.png";
+NEXT_BALL_TEXTURE_WIDTH = 4096.0;
+NEXT_BALL_TEXTURE_HEIGHT = 512.0;
+NEXT_BALL_COLOR = vec3(0.9, 0.9, 0.9);
+
 // The flat n' rectangular things we want to draw on the HUD and menu
-var Tile = function(texture, textureDimensions, tileTopLeft, tileWidth, tileHeight, color) {
+var Text = function(texture, textureWidth, textureHeight, color) {
   this.texture = assets[texture];
   this.color = color;
-
-  // Calculate the UV coordinates (from 0.0 to 1.0 in two dimensions) that
-  // OpenGL will ultimately use. We don't really care what the original
-  // texture's size was, as long as it was square.
-  this.topLeft = scale(1.0/textureDimensions, tileTopLeft);
-  this.topRight = scale(1.0/textureDimensions, vec2(tileTopLeft[0] + tileWidth, tileTopLeft[1]));
-  this.bottomLeft = scale(1.0/textureDimensions, vec2(tileTopLeft[0], tileTopLeft[1] - tileHeight));
-  this.bottomRight = scale(1.0/textureDimensions, vec2(tileTopLeft[0] + tileWidth, tileTopLeft[1] - tileHeight));
 
   // TODO: Orientation? I don't need that yet.
   this.position = vec2(0.0, 0.0);  // Position of the center of the tile
@@ -3648,21 +3645,21 @@ var Tile = function(texture, textureDimensions, tileTopLeft, tileWidth, tileHeig
   //   '-----'-----'-----'-----'-----'
   //         position       texture
   //
-  var tileAspect = tileWidth / tileHeight;
-  /*
+  var tileAspect = textureWidth / textureHeight;
   var verticies = [
-    -(tileAspect/2), -0.5, -1.0, this.bottomLeft[0], this.bottomLeft[1],  // Bottom left
-    tileAspect/2, -0.5, -1.0, this.bottomRight[0], this.bottomRight[1],  // Bottom right
-    tileAspect/2, 0.5, -1.0, this.topRight[0], this.topRight[1],  // Top right
-    -(tileAspect/2), 0.5, -1.0, this.topLeft[0], this.topLeft[1]  // Top left
+    -(tileAspect/2), -0.5, -1.0, 0.0, 0.0,  // Bottom left
+    tileAspect/2, -0.5, -1.0, 1.0, 0.0,  // Bottom right
+    tileAspect/2, 0.5, -1.0, 1.0, 1.0,  // Top right
+    -(tileAspect/2), 0.5, -1.0, 0.0, 1.0  // Top left
   ];
-  */
+  /*
   var verticies = [
     -1.0, -1.0, 0.0, 0.0, 0.0,  // Bottom left
     1.0, -1.0, 0.0, 1.0, 0.0,  // Bottom right
     1.0, 1.0, 0.0, 1.0, 1.0,  // Top right
     -1.0, 1.0, 0.0, 0.0, 1.0,  // Top left
   ];
+  */
   var elements = [
     0, 1, 2,  // Bottom right triangle
     2, 3, 0  // Top left triangle
@@ -3678,7 +3675,7 @@ var Tile = function(texture, textureDimensions, tileTopLeft, tileWidth, tileHeig
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.vertexElementsBuffer);
   gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, elementsUint, gl.STATIC_DRAW);
 }
-Tile.prototype.draw = function(gl, modelWorld, worldView, projection) {
+Text.prototype.draw = function(gl, modelWorld, worldView, projection) {
   var initialSize = modelWorld.size();
   // Translate the tile into its position
   modelWorld.push(translate(vec3(this.position)));
@@ -3731,13 +3728,17 @@ Tile.prototype.draw = function(gl, modelWorld, worldView, projection) {
 var HeadsUpDisplay = function() {
   this.state = 'idle';
 
-  this.tiles = {};
-  this.tiles.replay = new Tile(REPLAY_TEXTURE, TEXT_TEXTURE_DIMENSIONS,
-      REPLAY_TOP_LEFT, REPLAY_WIDTH, REPLAY_HEIGHT, REPLAY_COLOR);
+  this.text = {};
+  this.text.nextBall = new Text(NEXT_BALL_TEXTURE, NEXT_BALL_TEXTURE_WIDTH, NEXT_BALL_TEXTURE_HEIGHT, NEXT_BALL_COLOR);
+  this.text.replay = new Text(REPLAY_TEXTURE, REPLAY_TEXTURE_WIDTH, REPLAY_TEXTURE_HEIGHT, REPLAY_COLOR);
 
-  // Position our replay tile in the bottom of the screen in the margin
-  this.tiles.replay.position = vec2(0.0, TABLE_MODEL_WIDTH/2 + ORTHO_MARGIN/2);
-  this.tiles.replay.scale = ORTHO_MARGIN - HUD_MARGIN;
+  // Position the next ball text at the top of the screen in the margin
+  this.text.nextBall.position = vec2(0.0, TABLE_MODEL_WIDTH/2 + ORTHO_MARGIN/2);
+  this.text.nextBall.scale = ORTHO_MARGIN - HUD_MARGIN;
+
+  // TODO: Position our replay text in the bottom left of the screen in the margin
+  this.text.replay.position = vec2(-ORTHO_MARGIN/2, -(TABLE_MODEL_WIDTH/2 + ORTHO_MARGIN/2));
+  this.text.replay.scale = ORTHO_MARGIN - HUD_MARGIN;
 
   this.camera = new Camera(
       { type: 'orthographic',
@@ -3800,7 +3801,8 @@ HeadsUpDisplay.prototype.draw = function(gl) {
       this.ball.draw(gl, modelWorld, worldView, projection);
       // TODO: Draw the "Next Ball: " text
       // FIXME: This is replay... bleh
-      this.tiles.replay.draw(gl, modelWorld, worldView, projection);
+      this.text.nextBall.draw(gl, modelWorld, worldView, projection);
+      this.text.replay.draw(gl, modelWorld, worldView, projection);
       break;
     case 'replay':
       break;
