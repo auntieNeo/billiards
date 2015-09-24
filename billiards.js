@@ -1677,7 +1677,7 @@ BilliardTable.prototype.saveState = function() {
 
   // Save the list of pocketed balls
   state.pocketedBalls = this.pocketedBalls.slice();
-  state.recentPocketedBalls = this.recentPocketedBalls.slice();
+  state.recentlyPocketedBalls = this.recentlyPocketedBalls.slice();
 
   // Save the elapsed simulation time
   state.simulationElapsedTime = this.simulationElapsedTime;
@@ -1701,7 +1701,7 @@ BilliardTable.prototype.restoreState = function(state) {
 
   // restore the list of pocketed balls
   this.pocketedBalls = state.pocketedBalls.slice();
-  this.recentPocketedBalls = state.recentPocketedBalls.slice();
+  this.recentlyPocketedBalls = state.recentlyPocketedBalls.slice();
 
   // Save the elapsed simulation time
   this.simulationElapsedTime = state.simulationElapsedTime;
@@ -1743,7 +1743,7 @@ BilliardTable.prototype.tick = function(dt) {
         this.yBalls.push(this.balls[i]);
       }
       this.pocketedBalls = [];
-      this.recentPocketedBalls = [];
+      this.recentlyPocketedBalls = [];
     case 'startInitialDropCueBall':
       // Place the cue ball in the middle of the 'kitchen'
       this.balls[0].putInPlay(vec3((-3/8) * TABLE_LENGTH, BALL_RADIUS));
@@ -1855,15 +1855,15 @@ BilliardTable.prototype.tick = function(dt) {
       this.state = 'postSimulation';
       // Look for any new pocketed balls
       this.replaySet = new Map();
-      console.log("Recent pocketed balls: " + this.recentPocketedBalls);
-      for (var i = 0; i < this.recentPocketedBalls.length; ++i) {
-        var ball = this.balls[this.recentPocketedBalls[i]];
+      console.log("Recent pocketed balls: " + this.recentlyPocketedBalls);
+      for (var i = 0; i < this.recentlyPocketedBalls.length; ++i) {
+        var ball = this.balls[this.recentlyPocketedBalls[i]];
         var pocketName = ball.pocketName;
         if (this.replaySet.has(pocketName)) {
           // At least one other ball has been pocketed in the same pocket; we
           // must reconcile their pocket times to determine which ball we
           // should follow on camera
-          this.replaySet.get(pocketName).balls.push(ball.number);
+          this.replaySet.get(pocketName).balls.push({ number: ball.number, pocketTime: ball.pocketTime });
           if (ball.pocketTime < this.replaySet.get(pocketName).pocketTime) {
             // This ball was pocketed sooner; it's a safe bet that we can at
             // least catch all of the balls on camera by following this ball
@@ -1880,19 +1880,26 @@ BilliardTable.prototype.tick = function(dt) {
               pocketTime: ball.pocketTime,
               timeOfInterest: ball.firstHitTime - REPLAY_TIME_BEFORE_HIT,
               ballOfInterest: ball.number,
-              balls: [ ball.number ]
+              balls: [ { number: ball.number, pocketTime: ball.pocketTime } ]
           });
         }
         // TODO: Some game logic?
       }
-      this.recentPocketedBalls = [];
+      this.recentlyPocketedBalls = [];
       // Gather the times of interest and pocket times and sort them
       this.replayQueue = [];
       billiardTable = this;
       this.replaySet.forEach(function(item) {
         billiardTable.replayQueue.push(item);
+        // Sort the balls in each replay by pocket time so that the camera can
+        // follow each of the balls into the pocket in turn
+        item.balls.sort(function(a, b) {
+            return a.pocketTime - b.pocketTime;
+        });
         console.log("Following ball " + item.ballOfInterest + " to pocket " + item.pocket + " starting at time " + item.timeOfInterest + ".");
       });
+      // Sort the replays by time of interest, so that the action is at least
+      // somewhat chronological
       this.replayQueue.sort(function(a, b) {
         return a.timeOfInterest - b.timeOfInterest;
       });
@@ -1901,7 +1908,7 @@ BilliardTable.prototype.tick = function(dt) {
       // Show the replay status on the HUD
       hud.replay();
       // Tell the cameras to watch the replay action
-      this.setCameraReplay();
+      this.setCameraInitialReplay();
       // Play replays (if we have any pocketed balls)
       this.nextTurn = this.saveState();  // Remember the present state while playing replays
       // We start with the replay from the beginning; now that we know the
@@ -1915,8 +1922,7 @@ BilliardTable.prototype.tick = function(dt) {
     case 'initialReplay':
       this.state = 'initialReplay';
       // TODO: We need to animate the cue stick before starting the simulation
-      // TODO: Make sure no game logic is advanced during replays
-      // Check for times of interest and save the state at those times
+      // Check for replay times of interest and save the state at those times
       if ((this.replayQueueIndex < this.replayQueue.length) &&
           (this.simulationElapsedTime >= this.replayQueue[this.replayQueueIndex].timeOfInterest)) {
         this.replayQueue[this.replayQueueIndex++].state = this.saveState();
@@ -1928,6 +1934,8 @@ BilliardTable.prototype.tick = function(dt) {
       } else if (this.simulationElapsedTime > this.simulationEndTime) {
         // Stop the initial replay some time after the last ball has been
         // pocketed
+        // TODO: Stop the initial replay after all balls have been pocketed AND
+        // the balls have all slowed below a certain speed
       } else {
         break;
       }
@@ -1936,17 +1944,23 @@ BilliardTable.prototype.tick = function(dt) {
       if (this.replayQueueIndex < this.replayQueue.length) {
         // Load the replay state
         this.restoreState(this.replayQueue[this.replayQueueIndex].state);
-        // TODO: Set the camera to follow the ball of interest
+        // Set the camera to follow the ball(s) of interest for this pocket
+        this.setCameraPocketReplay(this.replayQueue[this.replayQueueIndex].pocket, this.replayQueue[this.replayQueueIndex].balls);
         window.alert("We want to have the " + this.replayQueue[this.replayQueueIndex].pocket + " camera follow the " + this.replayQueue[this.replayQueueIndex].ballOfInterest + " ball.");
       }
       this.state = 'replay';
     case 'replay':
+      if (this.keysDepressed.spacebar) {
+        // Spacebar skips the replays
+        this.state = 'postReplay';
+        return;
+      }
       if (this.replayQueueIndex < this.replayQueue.length) {
         // Replay each pocket from the pocket cams
         // Wait until all the balls we are interested in have been pocketed
         var done = true;
         for (var i = 0; i < this.replayQueue[this.replayQueueIndex].balls.length; ++i) {
-          if (this.recentPocketedBalls.indexOf(this.replayQueue[this.replayQueueIndex].balls[i]) == -1) {
+          if (this.recentlyPocketedBalls.indexOf(this.replayQueue[this.replayQueueIndex].balls[i].number) == -1) {
             done = false;
             break;
           }
@@ -1955,7 +1969,7 @@ BilliardTable.prototype.tick = function(dt) {
           // Keep waiting for our balls to be pocketed
           break;
         } else {
-          // TODO: Wait a short time after the ball is pocketed
+          // TODO: Wait a short time after the last ball is pocketed
           // TODO: Check if we have more replays in the queue
           if (++this.replayQueueIndex < this.replayQueue.length) {
             // Load the next replay
@@ -2516,14 +2530,22 @@ BilliardTable.prototype.pocketBall = function(ballNumber, pocketName) {
   // Note the simulation time that the ball was pocketed, so we can make a nice
   // replay
   this.pocketedBalls.push(ballNumber);
-  this.recentPocketedBalls.push(ballNumber);
+  this.recentlyPocketedBalls.push(ballNumber);
 }
 
 BilliardTable.prototype.setCameraInteractive = function() {
   this.cameraState = 'interaction';
 }
-BilliardTable.prototype.setCameraReplay = function() {
-  this.cameraState = 'startReplay';
+BilliardTable.prototype.setCameraInitialReplay = function() {
+  this.cameraState = 'startInitialReplay';
+}
+BilliardTable.prototype.setCameraPocketReplay = function(pocketName, balls) {
+  // This routine instructs the camera's state machine to follow the given
+  // balls as they enter the given pocket, in the order that the balls are
+  // given
+  this.cameraState = 'startPocketReplay';
+  this.cameraPocketName = pocketName;
+  this.cameraPocketBalls = balls.slice();
 }
 BilliardTable.prototype.tickCameras = function(dt) {
   // Determine the camera to draw (e.g. are we idling (rotate around the table
@@ -2565,19 +2587,41 @@ BilliardTable.prototype.tickCameras = function(dt) {
       break;
     case 'simulation':
       break;
-    case 'startReplay':
+    case 'startInitialReplay':
+      // TODO: Follow the ball with the current highest velocity, while also
+      // obeying a timeout
       // Position the chase camera behind the cue ball, pointing in the
       // direction of its velocity
       this.currentCamera = this.cameras.chase;
       this.currentCamera.chase(this.balls[0],
           add(vec3(0.0, 0.0, CHASE_CAMERA_DISPLACEMENT[1]), scale(-CHASE_CAMERA_DISPLACEMENT[0], normalize(this.balls[0].velocity))));
-      this.currentCamera = this.cameras.northwestPocket;  // XXX
-//      this.currentCamera.follow(this.balls[2]);  // XXX
-    case 'replay':
-      this.cameraState = 'replay';
-//      this.currentCamera = this.cameras.southPocket;  // XXX
-//      this.currentCamera.follow(this.balls[0]);
+      this.cameraState = 'initialReplay';
+    case 'initialReplay':
       break;
+    case 'startPocketReplay':
+      this.cameraState = 'pocketReplay';
+      // Follow the first ball to enter the pocket
+      this.currentCamera = this.getCameraFromPocketName(this.cameraPocketName);
+      this.currentCamera.follow(this.balls[this.cameraPocketBalls[0].number]);
+    case 'pocketReplay':
+      if (this.cameraPocketBalls.length > 0) {
+        if (this.recentlyPocketedBalls.indexOf(this.cameraPocketBalls[0].number) != -1) {
+          // If the ball we are watching has already been pocketed, move to the
+          // next ball
+          this.cameraPocketBalls.shift();
+          if (this.cameraPocketBalls.length > 0) {
+            // We still have balls to follow
+            this.currentCamera.follow(this.balls[this.cameraPocketBalls[0].number]);
+          }
+        }
+        break;  // Continue watching balls enter the pocket
+      } else {
+        // No more balls to follow; are we done? No. The main state machine
+        // will eventually change our state. We just have to wait.
+      }
+      break;
+    default:
+      throw "Unknown billiard table camera state: " + this.cameraState;
   }
 
   // Let the camera animate
@@ -2659,6 +2703,24 @@ BilliardTable.prototype.keyUpEvent = function(event) {
     case 0x27:  // Right Arrow
       this.keysDepressed.rightArrow = false;
       break;
+  }
+}
+BilliardTable.prototype.getCameraFromPocketName = function(pocketName) {
+  switch (pocketName) {
+    case 'SOUTHEAST_POCKET':
+      return this.cameras.southeastPocket;
+    case 'SOUTHWEST_POCKET':
+      return this.cameras.southwestPocket;
+    case 'NORTHEAST_POCKET':
+      return this.cameras.northeastPocket;
+    case 'NORTHWEST_POCKET':
+      return this.cameras.northwestPocket;
+    case 'SOUTH_POCKET':
+      return this.cameras.southPocket;
+    case 'NORTH_POCKET':
+      return this.cameras.northPocket;
+    default:
+      throw "Unknown pocket name '" + pocketName + "'!";
   }
 }
 
