@@ -130,18 +130,20 @@ HEADS_UP_DISPLAY_CAMERA_FAR = MAIN_ORTHO_CAMERA_FAR;
 HUD_MARGIN = ORTHO_MARGIN/3;
 HUD_NEXT_BALL_ANGULAR_VELOCITY = Math.PI/2;
 
-SOUTH_POCKET_CAMERA_POSITION = vec3(0.0, 0.63724, 0.055582);
-SOUTH_POCKET_CAMERA_ORIENTATION = quat(-0.001, -0.510, -0.860, -0.002);
-SOUTH_POCKET_CAMERA_FOV = 100/2;  // Degrees
-SOUTH_POCKET_CAMERA_NEAR = .01;
-SOUTH_POCKET_CAMERA_FAR = 100;
+NORTH_POCKET_CAMERA_POSITION = vec3(0.0, 0.69124, 0.103582);
+NORTH_POCKET_CAMERA_ORIENTATION = quat(-0.001, -0.510, -0.860, -0.002);
+NORTH_POCKET_CAMERA_FOV = 100/2;  // Degrees
+NORTH_POCKET_CAMERA_NEAR = .01;
+NORTH_POCKET_CAMERA_FAR = 100;
 
 // The other cameras are mirror transforms of the above cameras
-NORTH_POCKET_CAMERA_POSITION = vec3(mult(vec4(SOUTH_POCKET_CAMERA_POSITION), scalem(1.0, -1.0, 1.0)));
-NORTH_POCKET_CAMERA_ORIENTATION = qmult(SOUTH_POCKET_CAMERA_ORIENTATION, quat(vec3(0.0, 0.0, 1.0), Math.PI));
-NORTH_POCKET_CAMERA_FOV = SOUTH_POCKET_CAMERA_FOV
-NORTH_POCKET_CAMERA_NEAR = SOUTH_POCKET_CAMERA_NEAR
-NORTH_POCKET_CAMERA_FAR = SOUTH_POCKET_CAMERA_FAR
+SOUTH_POCKET_CAMERA_POSITION = vec3(mult(vec4(NORTH_POCKET_CAMERA_POSITION), scalem(1.0, -1.0, 1.0)));
+SOUTH_POCKET_CAMERA_ORIENTATION = qmult(NORTH_POCKET_CAMERA_ORIENTATION, quat(vec3(0.0, 0.0, 1.0), Math.PI));
+SOUTH_POCKET_CAMERA_FOV = NORTH_POCKET_CAMERA_FOV
+SOUTH_POCKET_CAMERA_NEAR = NORTH_POCKET_CAMERA_NEAR
+SOUTH_POCKET_CAMERA_FAR = NORTH_POCKET_CAMERA_FAR
+window.alert("NORTH_POCKET_CAMERA_POSITION: " + NORTH_POCKET_CAMERA_POSITION);
+window.alert("SOUTH_POCKET_CAMERA_POSITION: " + SOUTH_POCKET_CAMERA_POSITION);
 
 CHASE_CAMERA_FOV = SOUTH_POCKET_CAMERA_FOV;
 CHASE_CAMERA_NEAR = SOUTH_POCKET_CAMERA_NEAR;
@@ -316,24 +318,6 @@ window.onload = function init() {
         break;
         */
 
-      /*
-      case 33:  // Page Up
-        frontSidePocketCamera.position[1] += 0.001
-        console.log("frontSidePocketCamera Y: " + frontSidePocketCamera.position[1]);
-        break;
-      case 34:  // Page Down
-        frontSidePocketCamera.position[1] -= 0.001
-        console.log("frontSidePocketCamera Y: " + frontSidePocketCamera.position[1]);
-        break;
-      case 38:  // Up Arrow
-        frontSidePocketCamera.position[2] += 0.001
-        console.log("frontSidePocketCamera Z: " + frontSidePocketCamera.position[2]);
-        break;
-      case 40:  // Down Arrow
-        frontSidePocketCamera.position[2] -= 0.001
-        console.log("frontSidePocketCamera Z: " + frontSidePocketCamera.position[2]);
-        break;
-        */
 
       /* Debugging for broken verticies */
       /*
@@ -1559,6 +1543,13 @@ var BilliardTable = function(gameMode, position, orientation) {
               far: MAIN_ORTHO_CAMERA_FAR },
             MAIN_ORTHO_CAMERA_POSITION,
             MAIN_ORTHO_CAMERA_ORIENTATION),
+    northPocket: new Camera(
+            { type: 'perspective',
+              fov: NORTH_POCKET_CAMERA_FOV,
+              near: NORTH_POCKET_CAMERA_NEAR,
+              far: NORTH_POCKET_CAMERA_FAR },
+            NORTH_POCKET_CAMERA_POSITION,
+            NORTH_POCKET_CAMERA_ORIENTATION),
     southPocket: new Camera(
             { type: 'perspective',
               fov: SOUTH_POCKET_CAMERA_FOV,
@@ -1857,6 +1848,8 @@ BilliardTable.prototype.tick = function(dt) {
       });
       this.simulationEndTime = this.simulationElapsedTime;
     case 'startReplay':
+      // Show the replay status on the HUD
+      hud.replay();
       // Tell the cameras to watch the replay action
       this.setCameraReplay();
       // Play replays (if we have any pocketed balls)
@@ -1900,10 +1893,10 @@ BilliardTable.prototype.tick = function(dt) {
     case 'replay':
       if (this.replayQueueIndex < this.replayQueue.length) {
         // Replay each pocket from the pocket cams
-        // TODO: Check if all of the balls we are interested in have been pocketed
+        // Wait until all the balls we are interested in have been pocketed
         var done = true;
         for (var i = 0; i < this.replayQueue[this.replayQueueIndex].balls.length; ++i) {
-          if (this.recentPocketedBalls.indexOf(this.replayQueue[this.replayQueueIndex].balls[i].number) != -1) {
+          if (this.recentPocketedBalls.indexOf(this.replayQueue[this.replayQueueIndex].balls[i]) == -1) {
             done = false;
             break;
           }
@@ -2528,6 +2521,8 @@ BilliardTable.prototype.tickCameras = function(dt) {
       this.currentCamera = this.cameras.chase;
       this.currentCamera.chase(this.balls[0],
           add(vec3(0.0, 0.0, CHASE_CAMERA_DISPLACEMENT[1]), scale(-CHASE_CAMERA_DISPLACEMENT[0], normalize(this.balls[0].velocity))));
+      this.currentCamera = this.cameras.southPocket;  // XXX
+      this.currentCamera.follow(this.balls[8]);  // XXX
     case 'replay':
       this.cameraState = 'replay';
 //      this.currentCamera = this.cameras.southPocket;  // XXX
@@ -2582,6 +2577,24 @@ BilliardTable.prototype.keyDownEvent = function(event) {
       break;
     case 0x27:  // Right Arrow
       this.keysDepressed.rightArrow = true;
+      break;
+
+    // XXX: Debug controls
+    case 33:  // Page Up
+      billiardTable.cameras.southPocket.position[1] += 0.001
+        console.log("billiardTable.cameras.southPocket Y: " + billiardTable.cameras.southPocket.position[1]);
+      break;
+    case 34:  // Page Down
+      billiardTable.cameras.southPocket.position[1] -= 0.001
+        console.log("billiardTable.cameras.southPocket Y: " + billiardTable.cameras.southPocket.position[1]);
+      break;
+    case 38:  // Up Arrow
+      billiardTable.cameras.southPocket.position[2] += 0.001
+        console.log("billiardTable.cameras.southPocket Z: " + billiardTable.cameras.southPocket.position[2]);
+      break;
+    case 40:  // Down Arrow
+      billiardTable.cameras.southPocket.position[2] -= 0.001
+        console.log("billiardTable.cameras.southPocket Z: " + billiardTable.cameras.southPocket.position[2]);
       break;
   }
 }
@@ -3616,6 +3629,7 @@ REPLAY_TEXTURE = "common/billiard_ball_10_sdf_near.png";
 REPLAY_TEXTURE_WIDTH = 4096.0;
 REPLAY_TEXTURE_HEIGHT = 512.0;
 REPLAY_COLOR = vec3(0.7, 0.0, 0.0);
+REPLAY_BLINK_INTERVAL = 0.5;
 
 //NEXT_BALL_TEXTURE = "common/next_ball_text_sdf.png";
 NEXT_BALL_TEXTURE = "common/billiard_ball_8_sdf_near.png";
@@ -3786,15 +3800,16 @@ HeadsUpDisplay.prototype.draw = function(gl) {
   // The HUD is drawn on top of everything
   gl.depthFunc(gl.ALWAYS);
 
+  // We need to construct our own matrix transformations, since the HUD is
+  // not relative to any other object's frame
+  var modelWorld = new TransformationStack();  // We're drawing in world space; use identity transformation
+  var worldView = this.camera.worldViewTransformation();
+  var projection = this.camera.projectionTransformation(canvas.clientWidth/canvas.clientHeight);
+
   switch (this.state) {
     case 'idle':
       break;
     case 'nextBall':
-      // We need to construct our own matrix transformations, since the HUD is
-      // not relative to any other object's frame
-      var modelWorld = new TransformationStack();  // We're drawing in world space; use identity transformation
-      var worldView = this.camera.worldViewTransformation();
-      var projection = this.camera.projectionTransformation(canvas.clientWidth/canvas.clientHeight);
       // Rotate the ball about the y-axis
       this.ball.orientation = quat(vec3(0.0, 1.0, 0.0), this.timeElapsed * HUD_NEXT_BALL_ANGULAR_VELOCITY);
       // Our ball should already be in position; we just need to draw it
@@ -3802,9 +3817,16 @@ HeadsUpDisplay.prototype.draw = function(gl) {
       // TODO: Draw the "Next Ball: " text
       // FIXME: This is replay... bleh
       this.text.nextBall.draw(gl, modelWorld, worldView, projection);
-      this.text.replay.draw(gl, modelWorld, worldView, projection);
       break;
+    case 'startReplay':
+      this.replayTimeElapsed = -dt;  // -dt + dt = 0.0
+      this.state = 'replay';
     case 'replay':
+      this.replayTimeElapsed += dt;
+      // Make the replay text blink
+      if (Math.floor(this.replayTimeElapsed / REPLAY_BLINK_INTERVAL)%2 == 0) {
+        this.text.replay.draw(gl, modelWorld, worldView, projection);
+      }
       break;
   }
 
