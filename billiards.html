@@ -51,7 +51,7 @@
       }
     </script>
 
-    <script id="tile-vert" type="x-shader/x-vertex">
+    <script id="text-vert" type="x-shader/x-vertex">
       attribute vec3 vertexPosition;
       attribute vec2 vertexUV;
 
@@ -65,17 +65,37 @@
         uv = vec2(vertexUV.s, 1.0 - vertexUV.t);  // Flip UV's because OpenGL is backwards
       }
     </script>
-    <script id="tile-frag" type="x-shader/x-fragment">
+    <script id="text-frag" type="x-shader/x-fragment">
+      // Signed distance fields for crisp lettering, based on Chris Green's paper
+      // See here: <http://www.valvesoftware.com/publications/2007/SIGGRAPH2007_AlphaTestedMagnification.pdf>
       precision mediump float;
 
       varying mediump vec2 uv;
+      varying vec3 normal;
 
       uniform sampler2D textureSampler;
+      uniform vec3 color;
+
+      // NOTE: Mesa+WebGL doesn't seem to support setting uniforms this early.
+      // IDK if that's part of the WebGL spec, or a limitation of Mesa, or
+      // what. Beware magic constants in the rest of this shader.
+//      uniform float SOFT_EDGE_DISTANCE = 0.01;
 
       void main(void) {
-//        gl_FragColor = texture2D(textureSampler, uv);
-//        gl_FragColor = vec4(uv, 0.0, 1.0);
-        gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);
+        vec4 baseColor = texture2D(textureSampler, uv);
+        // Get rid of jaggies
+        float softEdgeDistance = 0.01;  // SOFT_EDGE_DISTANCE
+        float distAlphaMask = baseColor.a;
+        float alpha = smoothstep(0.5 - softEdgeDistance, 0.5 + softEdgeDistance, distAlphaMask);
+        /*
+        float alpha;
+        if (baseColor.a > 0.5) {
+          alpha = 1.0;
+        } else {
+          alpha = 0.0;
+        }
+        */
+        gl_FragColor = vec4(color, alpha);
       }
     </script>
 
@@ -262,7 +282,7 @@
       // completely different, so we have to smooth out over two different
       // distances. These values are chosen through experimentation to see what
       // looks good.
-//      uniform float SOFT_EDGE_DISTANCE_NEAR = 0.03;
+//      uniform float SOFT_EDGE_DISTANCE_NEAR = 0.01;
 //      uniform float SOFT_EDGE_DISTANCE_FAR = 0.003;
 
       void main(void) {
@@ -281,7 +301,7 @@
         } else {
           // Use our  texture for balls close up
           baseColor = texture2D(nearTexture, uv);
-          softEdgeDistance = 0.03;  // SOFT_EDGE_DISTANCE_NEAR;
+          softEdgeDistance = 0.01;  // SOFT_EDGE_DISTANCE_NEAR;
         }
         float distAlphaMask = baseColor.a;
         // NOTE: In Green's paper, he uses the smoothstep function to smooth

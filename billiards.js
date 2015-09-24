@@ -173,7 +173,7 @@ BALL_BLACK = scale(1.0/255.0, vec3(14, 14, 6));
 */
 
 // Replay constants
-REPLAY_TIME_BEFORE_HIT = 1.5;
+REPLAY_TIME_BEFORE_HIT = 0.5;
 REPLAY_TIME_AFTER_LAST_POCKET = 1.5;
 
 // Audio constants
@@ -288,7 +288,7 @@ window.onload = function init() {
 //  gl.clearColor(0.0, 0.0, 0.0, 1.0);
   gl.clearColor(0.0, 0.0, 0.12, 1.0);
   gl.enable(gl.DEPTH_TEST);
-  gl.disable(gl.CULL_FACE);  // XXX
+  gl.enable(gl.CULL_FACE);
   gl.cullFace(gl.BACK);
 
   //----------------------------------------
@@ -452,9 +452,6 @@ function drawLoadingScreen() {
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, loadingScreen.vertexElementsBuffer);
   // Use our projection matrix
   gl.uniformMatrix4fv(loadingScreen.shader.uniforms.projectionMatrix, false, flatten(loadingScreen.camera.projectionTransformation(canvas.clientWidth/canvas.clientHeight).peek()));
-/*  gl.uniformMatrix4fv(loadingScreen.shader.uniforms.projectionMatrix, false, flatten(ortho(-1.0, 1.0,
-                                                                                           -1.0, 1.0,
-                                                                                           0.01, 100.0))); */
   // Configure the vertex attributes for position and uv
   gl.enableVertexAttribArray(loadingScreen.shader.attributes.vertexPosition);
   gl.enableVertexAttribArray(loadingScreen.shader.attributes.vertexUV);
@@ -562,9 +559,9 @@ var shaderAssets = [ { name: "billiardtable", vert: "billiardtable-vert", frag: 
                      { name: "debug", vert: "debug-vert", frag: "debug-frag",
                        attributes: [ "vertexPosition" ],
                        uniforms: [ "modelViewMatrix", "projectionMatrix" ] },
-                     { name: "tile", vert: "tile-vert", frag: "tile-frag",
+                     { name: "text", vert: "text-vert", frag: "text-frag",
                        attributes: [ "vertexPosition", "vertexUV" ],
-                       uniforms: [ "modelViewMatrix", "projectionMatrix", "textureSampler" ] }
+                       uniforms: [ "modelViewMatrix", "projectionMatrix", "textureSampler", "color" ] }
 ];
 var assetIndex = 0;
 var assetHandle = null;
@@ -1816,28 +1813,28 @@ BilliardTable.prototype.tick = function(dt) {
     case 'postSimulation':
       this.state = 'postSimulation';
       // Look for any new pocketed balls
-      this.replayQueue = new Map();
+      this.replaySet = new Map();
       console.log("Recent pocketed balls: " + this.recentPocketedBalls);
       for (var i = 0; i < this.recentPocketedBalls.length; ++i) {
         var ball = this.balls[this.recentPocketedBalls[i]];
         var pocketName = ball.pocketName;
-        if (this.replayQueue.has(pocketName)) {
+        if (this.replaySet.has(pocketName)) {
           // At least one other ball has been pocketed in the same pocket; we
           // must reconcile their pocket times to determine which ball we
           // should follow on camera
-          this.replayQueue.get(pocketName).balls.push(ball.number);
-          if (ball.pocketTime < this.replayQueue.get(pocketName).pocketTime) {
+          this.replaySet.get(pocketName).balls.push(ball.number);
+          if (ball.pocketTime < this.replaySet.get(pocketName).pocketTime) {
             // This ball was pocketed sooner; it's a safe bet that we can at
             // least catch all of the balls on camera by following this ball
             // to the pocket first
-            this.replayQueue.get(pocketName).pocketTime = ball.pocketTime;
-            this.replayQueue.get(pocketName).timeOfInterest = ball.firstHitTime - REPLAY_TIME_BEFORE_HIT;
-            this.replayQueue.get(pocketName).ballOfInterest = ball.number;
+            this.replaySet.get(pocketName).pocketTime = ball.pocketTime;
+            this.replaySet.get(pocketName).timeOfInterest = ball.firstHitTime - REPLAY_TIME_BEFORE_HIT;
+            this.replaySet.get(pocketName).ballOfInterest = ball.number;
           }
         } else {
           // Add pockets that have balls in them to the replay queue, along with
           // the pocketed balls, their pocket times, and their first hit time
-          this.replayQueue.set(pocketName, {
+          this.replaySet.set(pocketName, {
               pocket: ball.pocketName,
               pocketTime: ball.pocketTime,
               timeOfInterest: ball.firstHitTime - REPLAY_TIME_BEFORE_HIT,
@@ -1849,19 +1846,14 @@ BilliardTable.prototype.tick = function(dt) {
       }
       this.recentPocketedBalls = [];
       // Gather the times of interest and pocket times and sort them
-      this.timesOfInterest = [];
-      this.pocketTimes = [];
+      this.replayQueue = [];
       billiardTable = this;
-      this.replayQueue.forEach(function(item) {
-        billiardTable.timesOfInterest.push(item);
-        billiardTable.pocketTimes.push(item);
+      this.replaySet.forEach(function(item) {
+        billiardTable.replayQueue.push(item);
         console.log("Following ball " + item.ballOfInterest + " to pocket " + item.pocket + " starting at time " + item.timeOfInterest + ".");
       });
-      this.timesOfInterest.sort(function(a, b) {
-        return a - b;
-      });
-      this.pocketTimes.sort(function(a, b) {
-        return a - b;
+      this.replayQueue.sort(function(a, b) {
+        return a.timeOfInterest - b.timeOfInterest;
       });
       this.simulationEndTime = this.simulationElapsedTime;
     case 'startReplay':
@@ -1875,11 +1867,17 @@ BilliardTable.prototype.tick = function(dt) {
       this.restoreState(this.initialSimulationState);
       // Begin the simulation in replay mode
       this.startReplay();
+      // Remember which replay state we need to save next
+      this.replayQueueIndex = 0;
     case 'initialReplay':
       this.state = 'initialReplay';
       // TODO: We need to animate the cue stick before starting the simulation
-      // The replay simulates a lot of physics, but no game logic is advanced
-      // TODO: Check for times of interest and save the state at those times
+      // TODO: Make sure no game logic is advanced during replays
+      // Check for times of interest and save the state at those times
+      if ((this.replayQueueIndex < this.replayQueue.length) &&
+          (this.simulationElapsedTime >= this.replayQueue[this.replayQueueIndex].timeOfInterest)) {
+        this.replayQueue[this.replayQueueIndex++].state = this.saveState();
+      }
       if (this.keysDepressed.spacebar) {
         // Spacebar skips the replays
         this.state = 'postReplay';
@@ -1890,8 +1888,39 @@ BilliardTable.prototype.tick = function(dt) {
       } else {
         break;
       }
+      this.replayQueueIndex = 0;
+    case 'setupReplay':
+      if (this.replayQueueIndex < this.replayQueue.length) {
+        // Load the replay state
+        this.restoreState(this.replayQueue[this.replayQueueIndex].state);
+        // TODO: Set the camera to follow the ball of interest
+        window.alert("We want to have the " + this.replayQueue[this.replayQueueIndex].pocket + " camera follow the " + this.replayQueue[this.replayQueueIndex].ballOfInterest + " ball.");
+      }
+      this.state = 'replay';
     case 'replay':
-      // TODO: Replay some pocket shots
+      if (this.replayQueueIndex < this.replayQueue.length) {
+        // Replay each pocket from the pocket cams
+        // TODO: Check if all of the balls we are interested in have been pocketed
+        var done = true;
+        for (var i = 0; i < this.replayQueue[this.replayQueueIndex].balls.length; ++i) {
+          if (this.recentPocketedBalls.indexOf(this.replayQueue[this.replayQueueIndex].balls[i].number) != -1) {
+            done = false;
+            break;
+          }
+        }
+        if (!done) {
+          // Keep waiting for our balls to be pocketed
+          break;
+        } else {
+          // TODO: Wait a short time after the ball is pocketed
+          // TODO: Check if we have more replays in the queue
+          if (++this.replayQueueIndex < this.replayQueue.length) {
+            // Load the next replay
+            this.state = 'setupReplay';
+            break;
+          }
+        }
+      }
     case 'postReplay':
       // Restore the state from before playing the replays (and pray it works)
       this.restoreState(this.nextTurn);
@@ -2190,41 +2219,38 @@ BilliardTable.prototype.tickSimulation = function(dt) {
       // Check for collisions in each pocket
       southeastPocketNeighborhood.forEach(function(ball) {
         if (length(subtract(SOUTHEAST_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
-          window.alert("Pocketed ball in southeast pocket: " + ball);
           billiardTable.pocketBall(ball, "SOUTHEAST_POCKET");
         }
       });
       southwestPocketNeighborhood.forEach(function(ball) {
         if (length(subtract(SOUTHWEST_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
-          window.alert("Pocketed ball in southwest pocket: " + ball);
           billiardTable.pocketBall(ball, "SOUTHWEST_POCKET");
         }
       });
       northeastPocketNeighborhood.forEach(function(ball) {
         if (length(subtract(NORTHEAST_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
-          window.alert("Pocketed ball in northeast pocket: " + ball);
           billiardTable.pocketBall(ball, "NORTHEAST_POCKET");
         }
       });
       northwestPocketNeighborhood.forEach(function(ball) {
         if (length(subtract(NORTHWEST_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
-          window.alert("Pocketed ball in northwest pocket: " + ball);
           billiardTable.pocketBall(ball, "NORTHWEST_POCKET");
         }
       });
       southPocketNeighborhood.forEach(function(ball) {
         if (length(subtract(SOUTH_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
-          window.alert("Pocketed ball in south pocket: " + ball);
           billiardTable.pocketBall(ball, "SOUTH_POCKET");
         }
       });
       northPocketNeighborhood.forEach(function(ball) {
         if (length(subtract(NORTH_POCKET, vec2(billiardTable.balls[ball].position))) < POCKET_RADIUS) {
-          window.alert("Pocketed ball in north pocket: " + ball);
           billiardTable.pocketBall(ball, "NORTH_POCKET");
         }
       });
 
+
+      // This has been useful for debugging the pockets 
+      /*
       msg = "";
       var foundSome = false;
 
@@ -2279,7 +2305,7 @@ BilliardTable.prototype.tickSimulation = function(dt) {
       if (foundSome) {
         window.alert(msg);
       }
-
+      */
 
       break;
     default:
@@ -3584,15 +3610,18 @@ var isStriped = function(ballNumber) {
 
 // Some UV positions/dimensions for tiles (taken from Blender)
 TEXT_TEXTURE_DIMENSIONS = 4096.0;  // 4096 x 4096 in the original texture
-// REPLAY_TEXTURE = "common/menu_text_sdf.png";
-REPLAY_TEXTURE = "common/test.png";  // XXX
+REPLAY_TEXTURE = "common/billiard_ball_10_sdf_near.png";
+//REPLAY_TEXTURE = "common/menu_text_sdf.png";
+//REPLAY_TEXTURE = "common/test.png";  // XXX
 REPLAY_TOP_LEFT = vec2(403.00, 3291.00);
 REPLAY_WIDTH = 2160.0;
 REPLAY_HEIGHT = 342.0;
+REPLAY_COLOR = vec3(0.7, 0.0, 0.0);
 
 // The flat n' rectangular things we want to draw on the HUD and menu
-var Tile = function(texture, textureDimensions, tileTopLeft, tileWidth, tileHeight) {
+var Tile = function(texture, textureDimensions, tileTopLeft, tileWidth, tileHeight, color) {
   this.texture = assets[texture];
+  this.color = color;
 
   // Calculate the UV coordinates (from 0.0 to 1.0 in two dimensions) that
   // OpenGL will ultimately use. We don't really care what the original
@@ -3606,7 +3635,7 @@ var Tile = function(texture, textureDimensions, tileTopLeft, tileWidth, tileHeig
   this.position = vec2(0.0, 0.0);  // Position of the center of the tile
   this.scale = 1.0;
 
-  this.shader = assets["tile"];
+  this.shader = assets["text"];
 
   // TODO: Send our verticies, along with UV coordinates, to the GPU. We have
   // to be careful to scale the Y-dimension of our verticies to a length of
@@ -3620,11 +3649,19 @@ var Tile = function(texture, textureDimensions, tileTopLeft, tileWidth, tileHeig
   //         position       texture
   //
   var tileAspect = tileWidth / tileHeight;
+  /*
   var verticies = [
     -(tileAspect/2), -0.5, -1.0, this.bottomLeft[0], this.bottomLeft[1],  // Bottom left
     tileAspect/2, -0.5, -1.0, this.bottomRight[0], this.bottomRight[1],  // Bottom right
     tileAspect/2, 0.5, -1.0, this.topRight[0], this.topRight[1],  // Top right
     -(tileAspect/2), 0.5, -1.0, this.topLeft[0], this.topLeft[1]  // Top left
+  ];
+  */
+  var verticies = [
+    -1.0, -1.0, 0.0, 0.0, 0.0,  // Bottom left
+    1.0, -1.0, 0.0, 1.0, 0.0,  // Bottom right
+    1.0, 1.0, 0.0, 1.0, 1.0,  // Top right
+    -1.0, 1.0, 0.0, 0.0, 1.0,  // Top left
   ];
   var elements = [
     0, 1, 2,  // Bottom right triangle
@@ -3648,6 +3685,10 @@ Tile.prototype.draw = function(gl, modelWorld, worldView, projection) {
   // Scale the tile proportionally
   modelWorld.push(scalem(this.scale, this.scale, this.scale));
 
+  // Enable alpha blending for text cutout
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+  gl.enable(gl.BLEND);
+
   // Use our shader program
   gl.useProgram(this.shader);
   // Use our texture
@@ -3655,28 +3696,33 @@ Tile.prototype.draw = function(gl, modelWorld, worldView, projection) {
   gl.bindTexture(gl.TEXTURE_2D, this.texture);
   gl.uniform1i(this.shader.uniforms.textureSampler, 0);
   // Use our projection matrix and modelView matricies
-//  gl.uniformMatrix4fv(this.shader.uniforms.modelView, false, flatten(mult(worldView.peek(), modelWorld.peek())));
-  gl.uniformMatrix4fv(this.shader.uniforms.modelView, false, flatten(worldView.peek()));
+  gl.uniformMatrix4fv(this.shader.uniforms.modelViewMatrix, false, flatten(mult(worldView.peek(), modelWorld.peek())));
   gl.uniformMatrix4fv(this.shader.uniforms.projectionMatrix, false, flatten(projection.peek()));
+  // Pass the text color to the shader
+  gl.uniform3f(this.shader.uniforms.color,
+      this.color[0], this.color[1], this.color[2]);
   // Use our verticies
   gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexAttributesBuffer);
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.vertexElementsBuffer);
   gl.enableVertexAttribArray(this.shader.attributes.vertexPosition);
-//  gl.enableVertexAttribArray(this.shader.attributes.vertexUV);  // XXX
+  gl.enableVertexAttribArray(this.shader.attributes.vertexUV);
   gl.vertexAttribPointer(loadingScreen.shader.attributes.vertexPosition,
                          3,         // vec3
                          gl.FLOAT,  // 32bit floating point
                          false,     // Don't normalize values
                          4 * 5,     // Stride for five 32-bit values per-vertex
                          4 * 0);    // Position starts at the first value stored
-/*  gl.vertexAttribPointer(loadingScreen.shader.attributes.vertexUV,
+  gl.vertexAttribPointer(loadingScreen.shader.attributes.vertexUV,
                          2,         // vec2
                          gl.FLOAT,  // 32bit floating point
                          false,     // Don't normalize values
                          4 * 5,     // Stride for five 32-bit values per-vertex
-                         4 * 3);    // Texture coordinate starts at the forth value stored  */ // XXX
+                         4 * 3);    // Texture coordinate starts at the forth value stored
   // Draw our rectangle
   gl.drawElements(gl.TRIANGLES, 6 /* two triangles */, gl.UNSIGNED_SHORT, 0);
+
+  // Clean up WebGL state
+  gl.disable(gl.BLEND);
 
   // Return the model-world transformation stack to its original state
   modelWorld.unwind(initialSize);
@@ -3687,7 +3733,7 @@ var HeadsUpDisplay = function() {
 
   this.tiles = {};
   this.tiles.replay = new Tile(REPLAY_TEXTURE, TEXT_TEXTURE_DIMENSIONS,
-      REPLAY_TOP_LEFT, REPLAY_WIDTH, REPLAY_HEIGHT);
+      REPLAY_TOP_LEFT, REPLAY_WIDTH, REPLAY_HEIGHT, REPLAY_COLOR);
 
   // Position our replay tile in the bottom of the screen in the margin
   this.tiles.replay.position = vec2(0.0, TABLE_MODEL_WIDTH/2 + ORTHO_MARGIN/2);
@@ -3737,7 +3783,7 @@ HeadsUpDisplay.prototype.tick = function(dt) {
 }
 HeadsUpDisplay.prototype.draw = function(gl) {
   // The HUD is drawn on top of everything
-//  gl.disable(gl.DEPTH_TEST);
+  gl.depthFunc(gl.ALWAYS);
 
   switch (this.state) {
     case 'idle':
@@ -3761,5 +3807,5 @@ HeadsUpDisplay.prototype.draw = function(gl) {
   }
 
   // Clean up the WebGL state
-//  gl.enable(gl.DEPTH_TEST);
+  gl.depthFunc(gl.LESS);
 }
