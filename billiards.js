@@ -1639,6 +1639,7 @@ BilliardTable.prototype.saveState = function() {
 
   // Save the list of pocketed balls
   state.pocketedBalls = this.pocketedBalls.slice();
+  state.recentPocketedBalls = this.recentPocketedBalls.slice();
 
   // Save the elapsed simulation time
   state.simulationElapsedTime = this.simulationElapsedTime;
@@ -1662,6 +1663,7 @@ BilliardTable.prototype.restoreState = function(state) {
 
   // restore the list of pocketed balls
   this.pocketedBalls = state.pocketedBalls.slice();
+  this.recentPocketedBalls = state.recentPocketedBalls.slice();
 
   // Save the elapsed simulation time
   this.simulationElapsedTime = state.simulationElapsedTime;
@@ -1703,6 +1705,7 @@ BilliardTable.prototype.tick = function(dt) {
         this.yBalls.push(this.balls[i]);
       }
       this.pocketedBalls = [];
+      this.recentPocketedBalls = [];
     case 'startInitialDropCueBall':
       // Place the cue ball in the middle of the 'kitchen'
       this.balls[0].putInPlay(vec3((-3/8) * TABLE_LENGTH, BALL_RADIUS));
@@ -1784,7 +1787,6 @@ BilliardTable.prototype.tick = function(dt) {
         break;
       }
     case 'cueStickCollision':
-      console.log("this.cueStick.collisionVelocity: " + this.cueStick.collisionVelocity);
       this.balls[0].velocity = this.cueStick.collisionVelocity;
     case 'preSimulation':
       // Reset all of the ball first hit times
@@ -1815,9 +1817,9 @@ BilliardTable.prototype.tick = function(dt) {
       this.state = 'postSimulation';
       // Look for any new pocketed balls
       this.replayQueue = new Map();
-      window.alert("Pocketed balls: " + this.pocketedBalls);
-      for (var i = 0; i < this.pocketedBalls.length; ++i) {
-        var ball = this.balls[this.pocketedBalls[i]];
+      console.log("Recent pocketed balls: " + this.recentPocketedBalls);
+      for (var i = 0; i < this.recentPocketedBalls.length; ++i) {
+        var ball = this.balls[this.recentPocketedBalls[i]];
         var pocketName = ball.pocketName;
         if (this.replayQueue.has(pocketName)) {
           // At least one other ball has been pocketed in the same pocket; we
@@ -1845,6 +1847,7 @@ BilliardTable.prototype.tick = function(dt) {
         }
         // TODO: Some game logic?
       }
+      this.recentPocketedBalls = [];
       // Gather the times of interest and pocket times and sort them
       this.timesOfInterest = [];
       this.pocketTimes = [];
@@ -1872,13 +1875,11 @@ BilliardTable.prototype.tick = function(dt) {
       this.restoreState(this.initialSimulationState);
       // Begin the simulation in replay mode
       this.startReplay();
-      window.alert("this.simulationEndTime: " + this.simulationEndTime);
     case 'initialReplay':
       this.state = 'initialReplay';
       // TODO: We need to animate the cue stick before starting the simulation
       // The replay simulates a lot of physics, but no game logic is advanced
       // TODO: Check for times of interest and save the state at those times
-      console.log("Simulation elapsed time: " + this.simulationElapsedTime);
       if (this.keysDepressed.spacebar) {
         // Spacebar skips the replays
         this.state = 'postReplay';
@@ -2446,6 +2447,7 @@ BilliardTable.prototype.pocketBall = function(ballNumber, pocketName) {
   // Note the simulation time that the ball was pocketed, so we can make a nice
   // replay
   this.pocketedBalls.push(ballNumber);
+  this.recentPocketedBalls.push(ballNumber);
 }
 
 BilliardTable.prototype.setCameraInteractive = function() {
