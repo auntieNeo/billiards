@@ -95,7 +95,7 @@
           alpha = 0.0;
         }
         */
-        gl_FragColor = vec4(color, alpha);
+        gl_FragColor = vec4(color, 1.0 - alpha);
       }
     </script>
 
@@ -298,10 +298,20 @@
           // Use our far texture for balls far away
           baseColor = texture2D(farTexture, uv);
           softEdgeDistance = 0.003;  // SOFT_EDGE_DISTANCE_FAR;
+          /*
+          // Useful for debugging near/far texture distance
+          gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);
+          return;
+          */
         } else {
           // Use our  texture for balls close up
           baseColor = texture2D(nearTexture, uv);
           softEdgeDistance = 0.01;  // SOFT_EDGE_DISTANCE_NEAR;
+          /*
+          // Useful for debugging near/far texture distance
+          gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+          return;
+          */
         }
         float distAlphaMask = baseColor.a;
         // NOTE: In Green's paper, he uses the smoothstep function to smooth

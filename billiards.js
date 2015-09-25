@@ -124,7 +124,7 @@ HEADS_UP_DISPLAY_CAMERA_LEFT = MAIN_ORTHO_CAMERA_LEFT;
 HEADS_UP_DISPLAY_CAMERA_RIGHT = MAIN_ORTHO_CAMERA_RIGHT;
 HEADS_UP_DISPLAY_CAMERA_BOTTOM = MAIN_ORTHO_CAMERA_BOTTOM;
 HEADS_UP_DISPLAY_CAMERA_TOP = MAIN_ORTHO_CAMERA_TOP;
-HEADS_UP_DISPLAY_CAMERA_NEAR = MAIN_ORTHO_CAMERA_NEAR;
+HEADS_UP_DISPLAY_CAMERA_NEAR = 0.01;
 HEADS_UP_DISPLAY_CAMERA_FAR = MAIN_ORTHO_CAMERA_FAR;
 
 HUD_MARGIN = ORTHO_MARGIN/3;
@@ -182,7 +182,9 @@ BALL_RED = scale(1.0/255.0, vec3(254, 26, 15));
 BALL_PURPLE = scale(1.0/255.0, vec3(77, 25, 52));
 BALL_ORANGE = scale(1.0/255.0, vec3(254, 97, 49));
 BALL_GREEN = scale(1.0/255.0, vec3(32, 99, 58));
-BALL_MAROON = scale(1.0/255.0, vec3(84, 62, 44));
+// NOTE: This Maroon looked gray/purple
+//BALL_MAROON = scale(1.0/255.0, vec3(84, 62, 44));
+BALL_MAROON = scale(1.0/255.0, vec3(106, 11, 10));
 BALL_BLACK = scale(1.0/255.0, vec3(26, 16, 13));
 /*
 BALL_WHITE = scale(1.0/255.0, vec3(237, 224, 179));
@@ -531,7 +533,9 @@ var sdfTextures = [
   "common/billiard_ball_14_sdf_near.png",
   "common/billiard_ball_14_sdf_far.png",
   "common/billiard_ball_15_sdf_near.png",
-  "common/billiard_ball_15_sdf_far.png"
+  "common/billiard_ball_15_sdf_far.png",
+  "common/next_ball_text_sdf.png",
+  "common/replay_text_sdf.png"
 ];
 var textureAssets = [
   "common/billiard_table_simple_colors.png",
@@ -1427,6 +1431,13 @@ BilliardBall.prototype.draw = function(gl, modelWorld, worldView, projection) {
 
   MeshObject.prototype.draw.call(this, gl, modelWorld, worldView, projection);
 }
+BilliardBall.prototype.forceNearTexture = function() {
+  if (ENABLE_SDF) {
+    // This is a small hack to get nice balls rendering even with an orthographic
+    // projection.
+    this.farTexture = this.nearTexture;
+  }
+}
 
 //------------------------------------------------------------
 // Prototype for billiard tables
@@ -1853,9 +1864,10 @@ BilliardTable.prototype.tick = function(dt) {
       }
     case 'postSimulation':
       this.state = 'postSimulation';
-      // Look for any new pocketed balls
+      // Adavnce the game logic by informing its state machine of the recently pocketed balls
+      this.gameLogicPocketedBalls(this.recentlyPocketedBalls.slice());
+      // Construct a replay queue by observing which balls were pocketed and where
       this.replaySet = new Map();
-      console.log("Recent pocketed balls: " + this.recentlyPocketedBalls);
       for (var i = 0; i < this.recentlyPocketedBalls.length; ++i) {
         var ball = this.balls[this.recentlyPocketedBalls[i]];
         var pocketName = ball.pocketName;
@@ -1883,7 +1895,6 @@ BilliardTable.prototype.tick = function(dt) {
               balls: [ { number: ball.number, pocketTime: ball.pocketTime } ]
           });
         }
-        // TODO: Some game logic?
       }
       this.recentlyPocketedBalls = [];
       // Gather the times of interest and pocket times and sort them
@@ -1981,6 +1992,8 @@ BilliardTable.prototype.tick = function(dt) {
     case 'postReplay':
       // Restore the state from before playing the replays (and pray it works)
       this.restoreState(this.nextTurn);
+      // Restore the next ball status on the HUD
+      hud.nextBall(this.gameStateNextBall);
     case 'nextTurnSetup':
       // Get out of the replay camera
       this.setCameraInteractive();
@@ -2005,15 +2018,100 @@ BilliardTable.prototype.tick = function(dt) {
   this.tickSimulation(dt);
   this.tickGameLogic(dt);
 }
+BilliardTable.prototype.gameLogicFirstCueBallHit = function(ballNumber) {
+  this.gameStateFirstCueBallHit = ballNumber;
+}
+BilliardTable.prototype.gameLogicPocketedBalls = function(balls) {
+  this.gameStatePocketedBalls = balls.slice();
+}
 BilliardTable.prototype.tickGameLogic = function(dt) {
+  /*
+   * Monkey Billiards Nine Ball rules, from:
+   * <http://www.ign.com/faqs/2003/super-monkey-ball-monkey-billiards-faq-382480>
+   *
+   * a) Whoever pockets the 9 ball first is the winner of the rack.
+   *
+   * b) You must always hit the lowest ball first.
+   *
+   * c) After hitting the lowest ball, if it or another ball goes in, then you
+   *    can shoot again.  Another way to foul is to not hit the low ball first.
+   *
+   * d) Putting the cue ball in a hole is a foul, and the next shot
+   *    automatically is your opponents.
+   *
+   * e) The game is usually a best of 1, 3, 5, 7, or 9.
+   */
   switch (this.gameMode) {
     case NINE_BALL_MODE:
       switch (this.gameState) {
         case 'start':
+        case 'startMatch':
+        case 'startRack':
           hud.nextBall(1);
-        case 'playing':
-          this.gameState = 'playing';
+          this.gameStateBallsInPlay = [];
+          for (var i = 1; i <= 9; ++i) {
+            this.gameStateBallsInPlay.push(i);
+          }
+          this.gameStateNextBall = 1;
+        case 'playingRack':
+          this.gameState = 'playingRack';
+        case 'playingShot':
+        case 'postShot':
+          if (typeof this.gameStatePocketedBalls != 'undefined') {
+            // TODO: Knowing some of our balls were pocketed, we must remove
+            // them from the list of balls in play.
+            for (var i = 0; i < this.gameStatePocketedBalls; ++i) {
+              this.gameStateBallsInPlay.splice(i, 1);
+            }
+            // We figure out what to do with all these pocketed balls with a
+            // barrage of if else statements, yay!
+            if (this.gameStatePocketedBalls.indexOf(9) != -1) {
+              // The Nine ball was pocketed. Someone has won the rack.
+              if (this.gameStateFirstCueBallHit != this.gameStateNextBall) {
+                // The Nine ball was pocketed on a foul. We simply award the
+                // rack to the other player.
+                this.gameLogicAwardMatch((this.gameStatePlayer == 1) ? 2 : 1);
+                this.gameState = 'postRack';
+                break;
+              } else {
+                // The Nine ball was pocketed with legitimate means (We don't
+                // care if the cue ball was pocketed or not). The rack is
+                // awarded to the current player.
+                this.gameLogicAwardMatch(this.gameStatePlayer);
+                this.gameState = 'postRack';
+                break;
+              }
+            } else if (this.gameStatePocketedBalls.indexOf(0) != -1) {
+              // TODO: The cue ball was pocketed (without pocketing the nine
+              // ball). We issue a foul to the current player and switch
+              // players.
+            } else {
+              if (this.gameStateFirstCueBallHit != this.gameStateNextBall) {
+                // The current player fouled by not hitting the next ball
+                // first. We issue a foul to the current player and switch
+                // players.
+              }
+            }
+            // TODO: Check if the next ball was pocketed
+            if (this.gameStatePocketedBalls.indexOf(this.gameStateNextBall)) {
+              // The next ball was pocketed. We must determine what the next
+              // next ball should be.
+              // NOTE: The gameStateBallsInPlay array is always sorted, because
+              // we created the array ourselves and we only ever remove balls
+              // with Array.prototype.slice()
+              this.gameStateNextBall = this.gameStateBallsInPlay[0];
+              hud.nextBall(this.gameStateNextBall);
+            }
+            // TODO: The player at least pocketed some ball; it remains their turn.
+          } else {
+            // TODO: The player failed to pocket a ball; we switch players.
+          }
+          // "Consume" the pocketed balls for this shot
+          this.gameStatePocketedBalls = undefined;
           break;
+        case 'postRack':
+          // TODO: Determine who pocketed the nine ball and award that player the match.
+        case 'postMatch':
         default:
           throw "Encountered unknown game state '" + this.gameState + "'!";
       }
@@ -2155,15 +2253,9 @@ BilliardTable.prototype.tickSimulation = function(dt) {
           if (typeof xCollisions[lesserNumber + greaterNumber * this.balls.length] != 'undefined') {
             // Exact collision detection
             if (length(subtract(this.yBalls[i].position, this.yBalls[j].position)) < BALL_DIAMETER) {
-              // We have a ball-ball collision
-              if (typeof this.yBalls[i].firstHitTime == 'undefined') {
-                // We're the first hit; store the time
-                this.yBalls[i].firstHitTime = this.simulationElapsedTime;
-              }
-              if (typeof this.yBalls[j].firstHitTime == 'undefined') {
-                // We're the first hit; store the time
-                this.yBalls[j].firstHitTime = this.simulationElapsedTime;
-              }
+              // Record the ball-ball collision (for game logic and replay purposes)
+              this.noteBallBallCollision(this.yBalls[i], this.yBalls[j]);
+              this.noteBallBallCollision(this.yBalls[j], this.yBalls[i]);
               // Compute the reflection (perfectly elastic collision)
               var iVelocity = elasticCollisionReflection(
                   this.yBalls[i].velocity, this.yBalls[j].velocity,
@@ -2588,15 +2680,16 @@ BilliardTable.prototype.tickCameras = function(dt) {
     case 'simulation':
       break;
     case 'startInitialReplay':
-      // TODO: Follow the ball with the current highest velocity, while also
-      // obeying a timeout
       // Position the chase camera behind the cue ball, pointing in the
       // direction of its velocity
       this.currentCamera = this.cameras.chase;
       this.currentCamera.chase(this.balls[0],
           add(vec3(0.0, 0.0, CHASE_CAMERA_DISPLACEMENT[1]), scale(-CHASE_CAMERA_DISPLACEMENT[0], normalize(this.balls[0].velocity))));
       this.cameraState = 'initialReplay';
+      this.initialReplayCurrentBall = 0;
     case 'initialReplay':
+      // TODO: Follow the ball with the current highest velocity, while also
+      // obeying a cooldown timeout
       break;
     case 'startPocketReplay':
       this.cameraState = 'pocketReplay';
@@ -2721,6 +2814,17 @@ BilliardTable.prototype.getCameraFromPocketName = function(pocketName) {
       return this.cameras.northPocket;
     default:
       throw "Unknown pocket name '" + pocketName + "'!";
+  }
+}
+BilliardTable.prototype.noteBallBallCollision = function(ball, otherBall) {
+  // We have a ball-ball collision. We might need to record this fact.
+  if (typeof ball.firstHitTime == 'undefined') {
+    // We're the first hit; store the time
+    ball.firstHitTime = this.simulationElapsedTime;
+    if (ball.number == 0) {
+      // We're the cue ball; inform the game logic state machine
+      this.gameLogicFirstCueBallHit(otherBall.number);
+    }
   }
 }
 
@@ -3734,8 +3838,8 @@ var isStriped = function(ballNumber) {
 }
 
 // Some constants for text
-//REPLAY_TEXTURE = "common/replay_text_sdf.png";
-REPLAY_TEXTURE = "common/billiard_ball_10_sdf_near.png";
+REPLAY_TEXTURE = "common/replay_text_sdf.png";
+//REPLAY_TEXTURE = "common/billiard_ball_10_sdf_near.png";
 //REPLAY_TEXTURE = "common/menu_text_sdf.png";
 //REPLAY_TEXTURE = "common/test.png";  // XXX
 REPLAY_TEXTURE_WIDTH = 4096.0;
@@ -3743,11 +3847,11 @@ REPLAY_TEXTURE_HEIGHT = 512.0;
 REPLAY_COLOR = vec3(0.7, 0.0, 0.0);
 REPLAY_BLINK_INTERVAL = 0.5;
 
-//NEXT_BALL_TEXTURE = "common/next_ball_text_sdf.png";
-NEXT_BALL_TEXTURE = "common/billiard_ball_8_sdf_near.png";
+NEXT_BALL_TEXTURE = "common/next_ball_text_sdf.png";
+//NEXT_BALL_TEXTURE = "common/billiard_ball_8_sdf_near.png";
 NEXT_BALL_TEXTURE_WIDTH = 4096.0;
 NEXT_BALL_TEXTURE_HEIGHT = 512.0;
-NEXT_BALL_COLOR = vec3(0.9, 0.9, 0.9);
+NEXT_BALL_COLOR = vec3(1.0, 1.0, 1.0);
 
 // The flat n' rectangular things we want to draw on the HUD and menu
 var Text = function(texture, textureWidth, textureHeight, color) {
@@ -3859,11 +3963,11 @@ var HeadsUpDisplay = function() {
   this.text.replay = new Text(REPLAY_TEXTURE, REPLAY_TEXTURE_WIDTH, REPLAY_TEXTURE_HEIGHT, REPLAY_COLOR);
 
   // Position the next ball text at the top of the screen in the margin
-  this.text.nextBall.position = vec2(0.0, TABLE_MODEL_WIDTH/2 + ORTHO_MARGIN/2);
-  this.text.nextBall.scale = ORTHO_MARGIN - HUD_MARGIN;
+  this.text.nextBall.position = vec2(ORTHO_MARGIN * 0.89, TABLE_MODEL_WIDTH/2 + ORTHO_MARGIN/2);
+  this.text.nextBall.scale = (ORTHO_MARGIN - HUD_MARGIN)/2;
 
-  // TODO: Position our replay text in the bottom left of the screen in the margin
-  this.text.replay.position = vec2(-ORTHO_MARGIN/2, -(TABLE_MODEL_WIDTH/2 + ORTHO_MARGIN/2));
+  // Position our replay text in the top left of the screen in the margin
+  this.text.replay.position = vec2(-ORTHO_MARGIN, TABLE_MODEL_WIDTH/2 + ORTHO_MARGIN/2);
   this.text.replay.scale = ORTHO_MARGIN - HUD_MARGIN;
 
   this.camera = new Camera(
@@ -3876,19 +3980,24 @@ var HeadsUpDisplay = function() {
         far: HEADS_UP_DISPLAY_CAMERA_FAR },
       HEADS_UP_DISPLAY_CAMERA_POSITION,
       HEADS_UP_DISPLAY_CAMERA_ORIENTATION);
+
+  this.timeElapsed = 0.0;
 }
 HeadsUpDisplay.prototype.nextBall = function(ballNumber) {
   this.ball = new BilliardBall(ballNumber);
   // Draw the ball at the top of the screen, in the space we have set aside as
   // margin, and scale it to something around the size of a beach ball.
-  this.ball.position = vec3(TABLE_MODEL_LENGTH/2 - BALL_DIAMETER, TABLE_MODEL_WIDTH/2 + ORTHO_MARGIN/2, 0);
+  this.ball.position = vec3(TABLE_MODEL_LENGTH/2 - BALL_DIAMETER, TABLE_MODEL_WIDTH/2 + ORTHO_MARGIN/2, 0.0);
   this.ball.scale = ORTHO_MARGIN/2 - HUD_MARGIN/2;
+  // NOTE: Because of the orthographic camera, the shader will interpret the
+  // projection matrix and think that our ball is very far away. We want to use
+  // near textures for clarity, so we tell the ball to force near textures.
+  this.ball.forceNearTexture();
   // Keep our ball drawing while idle
   this.ball.setIdleDrawing();
 
   // Notify our state machine
   this.state = 'startNextBall';
-  this.timeElapsed = 0.0;
 }
 HeadsUpDisplay.prototype.replay = function() {
   this.state = 'startReplay';
