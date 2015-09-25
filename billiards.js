@@ -102,8 +102,8 @@ MAIN_CAMERA_ORIENTATION = vec4(0.463, 0.275, 0.437, 0.720);
 MAIN_CAMERA_FOV = 49.134/2;  // Degrees
 MAIN_CAMERA_NEAR = .1;
 MAIN_CAMERA_FAR = 100;
-MAIN_CAMERA_ANGULAR_ACCELERATION = 3.0;
-MAIN_CAMERA_MAX_ANGULAR_VELOCITY = Math.PI/1.0;
+MAIN_CAMERA_ANGULAR_ACCELERATION = 10.0;
+MAIN_CAMERA_MAX_ANGULAR_VELOCITY = Math.PI;
 MAIN_CAMERA_FUDGE_VECTOR = vec3(0.0, 0.0, -0.4);  // Point the camera further underneath the table
 
 MAIN_ORTHO_CAMERA_POSITION = vec3(0.0, 0.0, 1.0);
@@ -1865,7 +1865,7 @@ BilliardTable.prototype.tick = function(dt) {
     case 'postSimulation':
       this.state = 'postSimulation';
       // Adavnce the game logic by informing its state machine of the recently pocketed balls
-      this.gameLogicPocketedBalls(this.recentlyPocketedBalls.slice());
+      this.gameLogicPostShot(this.recentlyPocketedBalls.slice());
       // Construct a replay queue by observing which balls were pocketed and where
       this.replaySet = new Map();
       for (var i = 0; i < this.recentlyPocketedBalls.length; ++i) {
@@ -2021,8 +2021,9 @@ BilliardTable.prototype.tick = function(dt) {
 BilliardTable.prototype.gameLogicFirstCueBallHit = function(ballNumber) {
   this.gameStateFirstCueBallHit = ballNumber;
 }
-BilliardTable.prototype.gameLogicPocketedBalls = function(balls) {
+BilliardTable.prototype.gameLogicPostShot = function(balls) {
   this.gameStatePocketedBalls = balls.slice();
+  this.gameLogicState = 'startPostShot';
 }
 BilliardTable.prototype.tickGameLogic = function(dt) {
   /*
@@ -2056,61 +2057,69 @@ BilliardTable.prototype.tickGameLogic = function(dt) {
         case 'playingRack':
           this.gameState = 'playingRack';
         case 'playingShot':
+          break;
+        case 'startPostShot':
+          this.gameState = 'postShot';
         case 'postShot':
-          if (typeof this.gameStatePocketedBalls != 'undefined') {
-            // TODO: Knowing some of our balls were pocketed, we must remove
-            // them from the list of balls in play.
-            for (var i = 0; i < this.gameStatePocketedBalls; ++i) {
-              this.gameStateBallsInPlay.splice(i, 1);
+          // If some of our balls were pocketed, we must remove them from the
+          // list of balls in play.
+          for (var i = 0; i < this.gameStatePocketedBalls; ++i) {
+            if (this.gameStatePocketedBalls[i] == 0) {
+              continue;
             }
-            // We figure out what to do with all these pocketed balls with a
-            // barrage of if else statements, yay!
-            if (this.gameStatePocketedBalls.indexOf(9) != -1) {
-              // The Nine ball was pocketed. Someone has won the rack.
-              if (this.gameStateFirstCueBallHit != this.gameStateNextBall) {
-                // The Nine ball was pocketed on a foul. We simply award the
-                // rack to the other player.
-                this.gameLogicAwardMatch((this.gameStatePlayer == 1) ? 2 : 1);
-                this.gameState = 'postRack';
-                break;
-              } else {
-                // The Nine ball was pocketed with legitimate means (We don't
-                // care if the cue ball was pocketed or not). The rack is
-                // awarded to the current player.
-                this.gameLogicAwardMatch(this.gameStatePlayer);
-                this.gameState = 'postRack';
-                break;
-              }
-            } else if (this.gameStatePocketedBalls.indexOf(0) != -1) {
-              // TODO: The cue ball was pocketed (without pocketing the nine
-              // ball). We issue a foul to the current player and switch
-              // players.
-            } else {
-              if (this.gameStateFirstCueBallHit != this.gameStateNextBall) {
-                // The current player fouled by not hitting the next ball
-                // first. We issue a foul to the current player and switch
-                // players.
-              }
-            }
-            // TODO: Check if the next ball was pocketed
-            if (this.gameStatePocketedBalls.indexOf(this.gameStateNextBall)) {
-              // The next ball was pocketed. We must determine what the next
-              // next ball should be.
-              // NOTE: The gameStateBallsInPlay array is always sorted, because
-              // we created the array ourselves and we only ever remove balls
-              // with Array.prototype.slice()
-              this.gameStateNextBall = this.gameStateBallsInPlay[0];
-              hud.nextBall(this.gameStateNextBall);
-            }
-            // TODO: The player at least pocketed some ball; it remains their turn.
-          } else {
-            // TODO: The player failed to pocket a ball; we switch players.
+            this.gameStateBallsInPlay.splice(this.gameStateBallsInPlay.indexOf(this.gameStatePocketedBalls[i]), 1);
           }
+          // We figure out what to do with all these pocketed balls with a
+          // barrage of if else statements, yay!
+          if (this.gameStatePocketedBalls.indexOf(9) != -1) {
+            window.alert("Nine ball was pocketed!");
+            // The Nine ball was pocketed. Someone has won the rack.
+            if (this.gameStateFirstCueBallHit != this.gameStateNextBall) {
+              window.alert("Nine ball was pocketed on a foul! The other player wins this rack!");
+              // The Nine ball was pocketed on a foul. We simply award the
+              // rack to the other player.
+              this.gameLogicAwardMatch((this.gameStatePlayer == 1) ? 2 : 1);
+              this.gameState = 'postRack';
+              break;
+            } else {
+              // The Nine ball was pocketed with legitimate means (We don't
+              // care if the cue ball was pocketed or not). The rack is
+              // awarded to the current player.
+              window.alert("The current player wins this rack!");
+              this.gameLogicAwardMatch(this.gameStatePlayer);
+              this.gameState = 'postRack';
+              break;
+            }
+          } else if (this.gameStatePocketedBalls.indexOf(0) != -1) {
+            // TODO: The cue ball was pocketed (without pocketing the nine
+            // ball). We issue a foul to the current player and switch
+            // players.
+          } else {
+            if (this.gameStateFirstCueBallHit != this.gameStateNextBall) {
+              // The current player fouled by not hitting the next ball
+              // first. We issue a foul to the current player and switch
+              // players.
+            }
+          }
+          // TODO: Check if the next ball was pocketed
+          if (this.gameStatePocketedBalls.indexOf(this.gameStateNextBall)) {
+            // The next ball was pocketed. We must determine what the next
+            // next ball should be.
+            // NOTE: The gameStateBallsInPlay array is always sorted, because
+            // we created the array ourselves and we only ever remove balls
+            // with Array.prototype.slice()
+            this.gameStateNextBall = this.gameStateBallsInPlay[0];
+          }
+          // TODO: The player at least pocketed some ball; it remains their turn.
           // "Consume" the pocketed balls for this shot
           this.gameStatePocketedBalls = undefined;
-          break;
+          // Return the HUD to displaying the next ball
+          hud.nextBall(this.gameStateNextBall);
         case 'postRack':
           // TODO: Determine who pocketed the nine ball and award that player the match.
+          // TODO: Determine if we are done with this match or not
+          // TODO: Communicate to the main state machine that we want to re-rack the balls
+          this.state = 'startRack';
         case 'postMatch':
         default:
           throw "Encountered unknown game state '" + this.gameState + "'!";
@@ -2759,10 +2768,16 @@ BilliardTable.prototype.keyDownEvent = function(event) {
       break;
     // Arrow keys are used for camera controls, with most of the logic inside
     // tickCameras()
+    // FIXME: Combining the key codes like this is a hack. This should be done
+    // more carefully.
     case 0x25:  // Left Arrow
+    case 0x41:  // A  (Qwerty WASD)
+    case 0x4F:  // O  (Dvorak .OEU)
       this.keysDepressed.leftArrow = true;
       break;
     case 0x27:  // Right Arrow
+    case 0x44:  // D  (Qwerty WASD)
+    case 0x55:  // U  (Dvorak .OEU)
       this.keysDepressed.rightArrow = true;
       break;
 
@@ -2791,9 +2806,13 @@ BilliardTable.prototype.keyUpEvent = function(event) {
       this.keysDepressed.spacebar = false;
       break;
     case 0x25:  // Left Arrow
+    case 0x41:  // A  (Qwerty WASD)
+    case 0x4F:  // O  (Dvorak .OEU)
       this.keysDepressed.leftArrow = false;
       break;
     case 0x27:  // Right Arrow
+    case 0x44:  // D  (Qwerty WASD)
+    case 0x55:  // U  (Dvorak .OEU)
       this.keysDepressed.rightArrow = false;
       break;
   }
@@ -3075,13 +3094,16 @@ Camera.prototype.projectionTransformation = function(aspect) {
   return projection;
 }
 // TODO: Change lookAt into a utility function that returns a quaternion rotation
-Camera.prototype.lookAtSmooth = function(object, fudge, preserveRoll) {
+Camera.prototype.lookAtSmooth = function(object, fudge, iterate, preserveRoll) {
   if (typeof fudge == 'undefined')
     fudge = vec3(0.0, 0.0, 0.0);
   // NOTE: This naive implementation is close, but it doesn't work quite right.
   // It tends to follow an object slowly rather than looking at it instantly. I
   // have no idea why, but I'm not complaining because it looks really good for
-  // replays and close-ups.
+  // replays and close-ups. The iterate argument is a complete hack. But hey,
+  // it looks good.
+  if (typeof iterate == 'undefined')
+    iterate = 0;
   if (typeof preserveRoll == 'undefined')
     preserveRoll = false;
 
@@ -3128,6 +3150,10 @@ Camera.prototype.lookAtSmooth = function(object, fudge, preserveRoll) {
 
   // TODO: Add some assertions to make sure I didn't screw up the camera roll
 
+  // We call this method recursively as a hack to make it more responsive
+  if (iterate > 0) {
+    this.lookAtSmooth(object, fudge, iterate - 1, preserveRoll);
+  }
 }
 Camera.prototype.lookAt = function(object) {
   // NOTE: This is a simplistic version of the method above
@@ -3306,7 +3332,7 @@ Camera.prototype.tick = function(dt) {
       // TODO: Compute the current position from the angular displacement
       this.position = vec3(mult(vec4(this.animation.initialPosition), quatToMatrix(quat(this.animation.axis, this.animation.angularDisplacement))));
 
-      this.lookAtSmooth(this.animation.object, this.animation.fudge);
+      this.lookAtSmooth(this.animation.object, this.animation.fudge, 2);
       break;
     case 'chase':
       // Simply follow the object's position by changing our position
