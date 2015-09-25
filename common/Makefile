@@ -5,9 +5,9 @@ sdf = ../sdf/sdf
 sdf_near_ball_args = 512 256 .1
 sdf_far_ball_args = 256 128 .7
 sdf_text_args = 1024 128 .2
-sdf_short_text_args = 512 256 .1
+sdf_short_text_args = 512 128 .1
 
-all: billiard_ball_1_sdf_near.png billiard_ball_1_sdf_far.png billiard_ball_2_sdf_near.png billiard_ball_2_sdf_far.png billiard_ball_3_sdf_near.png billiard_ball_3_sdf_far.png billiard_ball_4_sdf_near.png billiard_ball_4_sdf_far.png billiard_ball_5_sdf_near.png billiard_ball_5_sdf_far.png billiard_ball_6_sdf_near.png billiard_ball_6_sdf_far.png billiard_ball_7_sdf_near.png billiard_ball_7_sdf_far.png billiard_ball_8_sdf_near.png billiard_ball_8_sdf_far.png billiard_ball_9_sdf_near.png billiard_ball_9_sdf_far.png billiard_ball_10_sdf_near.png billiard_ball_10_sdf_far.png billiard_ball_11_sdf_near.png billiard_ball_11_sdf_far.png billiard_ball_12_sdf_near.png billiard_ball_12_sdf_far.png billiard_ball_13_sdf_near.png billiard_ball_13_sdf_far.png billiard_ball_14_sdf_near.png billiard_ball_14_sdf_far.png billiard_ball_15_sdf_near.png billiard_ball_15_sdf_far.png next_ball_text_sdf.png replay_text_sdf.png foul_text_sdf.png player_one_text_sdf.png player_two_text_sdf.png
+all: billiard_ball_1_sdf_near.png billiard_ball_1_sdf_far.png billiard_ball_2_sdf_near.png billiard_ball_2_sdf_far.png billiard_ball_3_sdf_near.png billiard_ball_3_sdf_far.png billiard_ball_4_sdf_near.png billiard_ball_4_sdf_far.png billiard_ball_5_sdf_near.png billiard_ball_5_sdf_far.png billiard_ball_6_sdf_near.png billiard_ball_6_sdf_far.png billiard_ball_7_sdf_near.png billiard_ball_7_sdf_far.png billiard_ball_8_sdf_near.png billiard_ball_8_sdf_far.png billiard_ball_9_sdf_near.png billiard_ball_9_sdf_far.png billiard_ball_10_sdf_near.png billiard_ball_10_sdf_far.png billiard_ball_11_sdf_near.png billiard_ball_11_sdf_far.png billiard_ball_12_sdf_near.png billiard_ball_12_sdf_far.png billiard_ball_13_sdf_near.png billiard_ball_13_sdf_far.png billiard_ball_14_sdf_near.png billiard_ball_14_sdf_far.png billiard_ball_15_sdf_near.png billiard_ball_15_sdf_far.png next_ball_text_sdf.png replay_text_sdf.png foul_text_sdf.png player_one_text_sdf.png player_two_text_sdf.png player_one_wins_text_sdf.png player_two_wins_text_sdf.png press_spacebar_text_sdf.png
 
 # Generate SDF textures for near shots (especially in replays)
 billiard_ball_1_sdf_near.png: billiard_ball_1_bitmask.png
@@ -84,6 +84,12 @@ player_one_text_sdf.png: player_one_text_bitmask.png
 	$(sdf) ./player_one_text_bitmask.png ./player_one_text_sdf.png $(sdf_text_args)
 player_two_text_sdf.png: player_two_text_bitmask.png
 	$(sdf) ./player_two_text_bitmask.png ./player_two_text_sdf.png $(sdf_text_args)
+player_one_wins_text_sdf.png: player_one_wins_text_bitmask.png
+	$(sdf) ./player_one_wins_text_bitmask.png ./player_one_wins_text_sdf.png $(sdf_text_args)
+player_two_wins_text_sdf.png: player_two_wins_text_bitmask.png
+	$(sdf) ./player_two_wins_text_bitmask.png ./player_two_wins_text_sdf.png $(sdf_text_args)
+press_spacebar_text_sdf.png: press_spacebar_text_bitmask.png
+	$(sdf) ./press_spacebar_text_bitmask.png ./press_spacebar_text_sdf.png $(sdf_text_args)
 
 # Gimp doesn't really know how to store a .png with 1 bit of depth, so we use
 # ImageMagick to convert it
@@ -127,6 +133,12 @@ player_one_text_bitmask.png:
 	convert player_one_text_mask.png -depth 1 -type Grayscale player_one_text_bitmask.png
 player_two_text_bitmask.png: 
 	convert player_two_text_mask.png -depth 1 -type Grayscale player_two_text_bitmask.png
+player_one_wins_text_bitmask.png: 
+	convert player_one_wins_text_mask.png -depth 1 -type Grayscale player_one_wins_text_bitmask.png
+player_two_wins_text_bitmask.png: 
+	convert player_two_wins_text_mask.png -depth 1 -type Grayscale player_two_wins_text_bitmask.png
+press_spacebar_text_bitmask.png: 
+	convert press_spacebar_text_mask.png -depth 1 -type Grayscale press_spacebar_text_bitmask.png
 
 .PHONY: clean
 clean:

@@ -26,11 +26,11 @@ var BALL_CLOTH_ROLLING_RESISTANCE_ACCELERATION =
 var CUE_BALL_MASS = 0.17;  // kg
 var NUMBERED_BALL_MASS = 0.16;  // kg
 var CUE_STICK_TIME_TO_FADE_IN = 0.1;
-var CUE_STICK_TIME_TO_COLLISION = 0.1;  // Determines how fast the cue stick must travel
+var CUE_STICK_TIME_TO_COLLISION = 0.1/2.66666666;  // Determines how fast the cue stick must travel
 var CUE_STICK_TIME_AFTER_COLLISION = 0.1;
 var CURSOR_RADIUS_EPSILON = 0.4;  // Vectors within this radius are the weakest shot; this allows us to make shots at a greater radius and therefore with more accuracy.
 var SHOT_VELOCITY_EPSILON = 0.03;  // The weakest shot that you're allowed to make. This is a little higher than zero to avoid confusing the shot machines.
-var MAX_SHOT_VELOCITY = 3.0;  // m/s
+var MAX_SHOT_VELOCITY = 8.0;  // m/s
 var MAX_SHOT_DISTANCE = CURSOR_RADIUS_EPSILON + (BALL_RADIUS + MAX_SHOT_VELOCITY*CUE_STICK_TIME_TO_COLLISION);
 
 // Pocket physics fudge constants
@@ -92,7 +92,8 @@ var NINE_BALL_NUM_BALLS = 10;
 var STRAIGHT_POOL_NUM_BALLS = 16;
 
 // Animation constants
-var MAX_DT = 0.01;  // Arbitrary  // FIXME: un-marry the animation dt and the simulation dt
+//var MAX_DT = 0.003;  // Arbitrary  // FIXME: un-marry the animation dt and the simulation dt
+var MAX_DT = 0.007;  // Arbitrary  // FIXME: un-marry the animation dt and the simulation dt
 var LARGE_DT = MAX_DT * 10;  // Arbitrary limit for frame drop warning
 var DETERMINISTIC_DT = true;
 
@@ -136,7 +137,7 @@ NORTH_POCKET_CAMERA_FOV = 100/2;  // Degrees
 NORTH_POCKET_CAMERA_NEAR = .01;
 NORTH_POCKET_CAMERA_FAR = 100;
 
-SOUTHEAST_POCKET_CAMERA_POSITION = vec3(1.16923, -57.43254E-2, 20.11665E-2);
+SOUTHEAST_POCKET_CAMERA_POSITION = vec3(1.33923, -74.43254E-2, 20.11665E-2);
 SOUTHEAST_POCKET_CAMERA_ORIENTATION = quat(0.473, 0.208, 0.352, 0.780);
 SOUTHEAST_POCKET_CAMERA_FOV = NORTH_POCKET_CAMERA_FOV;
 SOUTHEAST_POCKET_CAMERA_NEAR = NORTH_POCKET_CAMERA_NEAR;
@@ -180,8 +181,12 @@ BALL_YELLOW = scale(1.0/255.0, vec3(254, 178, 99));
 BALL_BLUE = scale(1.0/255.0, vec3(4, 37, 37));
 BALL_RED = scale(1.0/255.0, vec3(254, 26, 15));
 BALL_PURPLE = scale(1.0/255.0, vec3(77, 25, 52));
-BALL_ORANGE = scale(1.0/255.0, vec3(254, 97, 49));
-BALL_GREEN = scale(1.0/255.0, vec3(32, 99, 58));
+// NOTE: This orange looked too red
+//BALL_ORANGE = scale(1.0/255.0, vec3(254, 97, 49));
+BALL_ORANGE = scale(1.0/255.0, vec3(214, 118, 0));
+// NOTE: This green looked blue
+//BALL_GREEN = scale(1.0/255.0, vec3(32, 99, 58));
+BALL_GREEN = scale(1.0/255.0, vec3(15, 58, 3));
 // NOTE: This Maroon looked gray/purple
 //BALL_MAROON = scale(1.0/255.0, vec3(84, 62, 44));
 BALL_MAROON = scale(1.0/255.0, vec3(106, 11, 10));
@@ -478,6 +483,76 @@ function drawLoadingScreen() {
   // Draw the triangles
   gl.drawElements(gl.TRIANGLES, 6 /* two triangles */, gl.UNSIGNED_SHORT, 0);
 }
+var rulesScreen;
+function drawRulesScreen() {
+  if (typeof rulesScreen == 'undefined') {
+    rulesScreen = {
+      userInput: false,
+      currentScreen: "rules-screen"
+    };
+
+    // This is jerry-rigged onto the loading screen. We simply show the rules and
+    // wait for the user to click.
+
+    // Free the old loading screen texture
+    gl.deleteTexture(loadingScreen.texture);
+    // Load our rules into a texture
+    var rulesImage = document.getElementById("rules-screen");
+    // Load the texture into WebGL
+    loadingScreen.texture = loadTexture(rulesImage);
+  }
+
+  canvas.onmousedown = function(event) {
+    // The user clicked; move on
+    rulesScreen.userInput = true;
+  }
+  window.onkeydown = function(event) {
+    // The user pressed a key; move on
+    rulesScreen.userInput = true;
+  }
+
+  if (rulesScreen.userInput) {
+    switch (rulesScreen.currentScreen) {
+      case 'rules-screen':
+        rulesScreen.currentScreen = 'controls-screen';
+        // Consume the input
+        rulesScreen.userInput = false;
+        // Free the old rules screen texture
+        gl.deleteTexture(loadingScreen.texture);
+        // Load our controls into a texture
+        var controlsImage = document.getElementById("controls-screen");
+        // Load the texture into WebGL
+        loadingScreen.texture = loadTexture(controlsImage);
+        // Keep drawing the "loading screen" with our controls texture
+        drawLoadingScreen();
+        requestAnimFrame(drawRulesScreen);
+        break;
+      case 'controls-screen':
+        rulesScreen.currentScreen = 'notes-screen';
+        // Consume the input
+        rulesScreen.userInput = false;
+        // Free the old rules screen texture
+        gl.deleteTexture(loadingScreen.texture);
+        // Load our notes into a texture
+        var notesImage = document.getElementById("notes-screen");
+        // Load the texture into WebGL
+        loadingScreen.texture = loadTexture(notesImage);
+        // Keep drawing the "loading screen" with our notes texture
+        drawLoadingScreen();
+        requestAnimFrame(drawRulesScreen);
+        break;
+      default:
+        // Free the rules screen texture
+        gl.deleteTexture(loadingScreen.texture);
+        // All assets have been loaded and the player is ready; proceed to the game loop
+        startGame();
+    }
+  } else {
+    // Keep drawing the "loading screen" with our rules texture
+    drawLoadingScreen();
+    requestAnimFrame(drawRulesScreen);
+  }
+}
 
 var geometryAssets = [
   "common/unit_billiard_ball.obj",
@@ -535,7 +610,13 @@ var sdfTextures = [
   "common/billiard_ball_15_sdf_near.png",
   "common/billiard_ball_15_sdf_far.png",
   "common/next_ball_text_sdf.png",
-  "common/replay_text_sdf.png"
+  "common/player_one_text_sdf.png",
+  "common/player_two_text_sdf.png",
+  "common/replay_text_sdf.png",
+  "common/foul_text_sdf.png",
+  "common/player_one_wins_text_sdf.png",
+  "common/player_two_wins_text_sdf.png",
+  "common/press_spacebar_text_sdf.png"
 ];
 var textureAssets = [
   "common/billiard_table_simple_colors.png",
@@ -604,10 +685,8 @@ function loadAssets() {
           assetArray = soundAssets;
         } else {
           i -= soundAssets.length;
-          // Free the loading screen texture
-//          gl.deleteTexture(loadingScreen.texture);  // XXX
-          // All assets have been loaded; proceed to the game loop
-          startGame();
+          // All assets have been loaded; show the rules before starting the game
+          drawRulesScreen();
           return;
         }
       }
@@ -1698,6 +1777,10 @@ BilliardTable.prototype.saveState = function() {
 BilliardTable.prototype.restoreState = function(state) {
   // This method perfoms the reverse operation of saveState
 
+  if (typeof state == 'undefined') {
+    return;  // FIXME: This happens sometimes.
+  }
+
   // Restore the state of each of our balls
   this.xBalls = [];
   this.yBalls = [];
@@ -1744,6 +1827,8 @@ BilliardTable.prototype.tick = function(dt) {
   switch (this.state) {
     case 'start':
       this.replays = [];
+      // Start with player one
+      this.gameLogicCurrentPlayer(1);
     case 'placeBalls':
       this.setCameraInteractive();
       this.xBalls = [];
@@ -1755,6 +1840,8 @@ BilliardTable.prototype.tick = function(dt) {
       }
       this.pocketedBalls = [];
       this.recentlyPocketedBalls = [];
+      // Inform the game logic state machine that we are starting a rack
+      this.gameLogicStartRack();
     case 'startInitialDropCueBall':
       // Place the cue ball in the middle of the 'kitchen'
       this.balls[0].putInPlay(vec3((-3/8) * TABLE_LENGTH, BALL_RADIUS));
@@ -1827,6 +1914,8 @@ BilliardTable.prototype.tick = function(dt) {
       }
       // The user clicked; release the cue stick
       this.cueStick.release();
+      // No need to show the HUD here
+      hud.idle();
     case 'cueStickRelease':
       this.state = 'cueStickRelease';
       // The user has released the cue stick and now the cue stick will animate
@@ -1864,8 +1953,7 @@ BilliardTable.prototype.tick = function(dt) {
       }
     case 'postSimulation':
       this.state = 'postSimulation';
-      // Adavnce the game logic by informing its state machine of the recently pocketed balls
-      this.gameLogicPostShot(this.recentlyPocketedBalls.slice());
+      this.nextTurn = this.saveState();  // Remember the present state while playing replays
       // Construct a replay queue by observing which balls were pocketed and where
       this.replaySet = new Map();
       for (var i = 0; i < this.recentlyPocketedBalls.length; ++i) {
@@ -1896,7 +1984,6 @@ BilliardTable.prototype.tick = function(dt) {
           });
         }
       }
-      this.recentlyPocketedBalls = [];
       // Gather the times of interest and pocket times and sort them
       this.replayQueue = [];
       billiardTable = this;
@@ -1921,7 +2008,6 @@ BilliardTable.prototype.tick = function(dt) {
       // Tell the cameras to watch the replay action
       this.setCameraInitialReplay();
       // Play replays (if we have any pocketed balls)
-      this.nextTurn = this.saveState();  // Remember the present state while playing replays
       // We start with the replay from the beginning; now that we know the
       // times of interest (pocket times, hit times, etc.), we can save more
       // replay states by running through the entire simulation
@@ -1934,14 +2020,25 @@ BilliardTable.prototype.tick = function(dt) {
       this.state = 'initialReplay';
       // TODO: We need to animate the cue stick before starting the simulation
       // Check for replay times of interest and save the state at those times
-      if ((this.replayQueueIndex < this.replayQueue.length) &&
-          (this.simulationElapsedTime >= this.replayQueue[this.replayQueueIndex].timeOfInterest)) {
-        this.replayQueue[this.replayQueueIndex++].state = this.saveState();
-      }
+      var done;
+      do {
+        done = true;
+        if ((this.replayQueueIndex < this.replayQueue.length) &&
+            (this.simulationElapsedTime >= this.replayQueue[this.replayQueueIndex].timeOfInterest)) {
+          this.replayQueue[this.replayQueueIndex++].state = this.saveState();
+          done = false;
+        }
+      } while (!done);
       if (this.keysDepressed.spacebar) {
-        // Spacebar skips the replays
-        this.state = 'postReplay';
-        return;
+        // Consume the input
+        this.keysDepressed.spacebar = false;
+        if (this.replayQueueIndex < this.replayQueue.length) {
+          // The player is impatient; skip all of the replays
+          this.state = 'postReplay';
+          return;
+        } else {
+          // Skip the boring initial replay and go to the pocket replays
+        }
       } else if (this.simulationElapsedTime > this.simulationEndTime) {
         // Stop the initial replay some time after the last ball has been
         // pocketed
@@ -1964,6 +2061,8 @@ BilliardTable.prototype.tick = function(dt) {
       if (this.keysDepressed.spacebar) {
         // Spacebar skips the replays
         this.state = 'postReplay';
+        // Consume the input
+        this.keysDepressed.spacebar = false;
         return;
       }
       if (this.replayQueueIndex < this.replayQueue.length) {
@@ -1992,8 +2091,9 @@ BilliardTable.prototype.tick = function(dt) {
     case 'postReplay':
       // Restore the state from before playing the replays (and pray it works)
       this.restoreState(this.nextTurn);
-      // Restore the next ball status on the HUD
-      hud.nextBall(this.gameStateNextBall);
+      // Adavnce the game logic by informing its state machine of the recently pocketed balls
+      this.gameLogicPostShot(this.recentlyPocketedBalls.slice());
+      this.recentlyPocketedBalls = [];
     case 'nextTurnSetup':
       // Get out of the replay camera
       this.setCameraInteractive();
@@ -2004,11 +2104,22 @@ BilliardTable.prototype.tick = function(dt) {
         // The cue ball was pocketed; we need to drop it somewhere
         this.balls[0].startDrop(vec2(0.0, 0.0));
         this.state = 'startDropCueBall';
-        return;
+        break;
       } else {  // TODO: Check that the game hasn't ended
         this.state = 'startSetupShot';
         break;
       }
+    case 'postRack':
+      // Wait for the user to click or press spacebar so we can start a new
+      // rack
+      if (this.keysDepressed.spacebar) {
+        // Consume the input
+        this.keysDepressed.spacebar = false;
+        // Start a new rack with the losing player doing the break
+        this.state = 'placeBalls';
+        this.gameLogicCurrentPlayer((this.gameStateWinningPlayer == 1) ? 2 : 1);
+      }
+      break;
     default:
       throw "Unknown billiard table state '" + this.state + "'!";
   }
@@ -2018,12 +2129,31 @@ BilliardTable.prototype.tick = function(dt) {
   this.tickSimulation(dt);
   this.tickGameLogic(dt);
 }
+BilliardTable.prototype.gameLogicStartRack = function() {
+  this.gameState = 'startRack';
+}
 BilliardTable.prototype.gameLogicFirstCueBallHit = function(ballNumber) {
   this.gameStateFirstCueBallHit = ballNumber;
 }
 BilliardTable.prototype.gameLogicPostShot = function(balls) {
   this.gameStatePocketedBalls = balls.slice();
-  this.gameLogicState = 'startPostShot';
+  this.gameState = 'startPostShot';
+}
+BilliardTable.prototype.gameLogicCurrentPlayer = function(playerNumber) {
+  // Inform our state machine
+  this.gameStatePlayer = playerNumber;
+  // Display the player on the HUD
+  hud.player(playerNumber);
+}
+BilliardTable.prototype.gameLogicNextPlayer = function() {
+  this.gameLogicCurrentPlayer((this.gameStatePlayer == 1) ? 2 : 1);
+}
+
+BilliardTable.prototype.gameLogicAwardRack = function(playerNumber) {
+  this.gameStateWinningPlayer = playerNumber;
+  hud.playerWins(playerNumber);
+  this.state = 'postRack';
+  this.gameState = 'postRack';
 }
 BilliardTable.prototype.tickGameLogic = function(dt) {
   /*
@@ -2046,7 +2176,11 @@ BilliardTable.prototype.tickGameLogic = function(dt) {
     case NINE_BALL_MODE:
       switch (this.gameState) {
         case 'start':
+          this.gameLogicCurrentPlayer(1);  // Always start with player one
         case 'startMatch':
+          // TODO: Determine which player goes first for this match
+        case 'playingMatch':
+          break;
         case 'startRack':
           hud.nextBall(1);
           this.gameStateBallsInPlay = [];
@@ -2056,37 +2190,39 @@ BilliardTable.prototype.tickGameLogic = function(dt) {
           this.gameStateNextBall = 1;
         case 'playingRack':
           this.gameState = 'playingRack';
-        case 'playingShot':
           break;
         case 'startPostShot':
           this.gameState = 'postShot';
         case 'postShot':
+          window.alert("We made it to post shot!");
           // If some of our balls were pocketed, we must remove them from the
           // list of balls in play.
-          for (var i = 0; i < this.gameStatePocketedBalls; ++i) {
+          for (var i = 0; i < this.gameStatePocketedBalls.length; ++i) {
             if (this.gameStatePocketedBalls[i] == 0) {
-              continue;
+              continue;  // Don't bother with the cue ball for now
             }
-            this.gameStateBallsInPlay.splice(this.gameStateBallsInPlay.indexOf(this.gameStatePocketedBalls[i]), 1);
+            if (this.gameStateBallsInPlay.indexOf(this.gameStatePocketedBalls[i]) == -1) {
+              // FIXME: This happens somehow
+              throw "Error accounting for balls the game logic state.";
+            } else {
+              this.gameStateBallsInPlay.splice(this.gameStateBallsInPlay.indexOf(this.gameStatePocketedBalls[i]), 1);
+            }
           }
           // We figure out what to do with all these pocketed balls with a
           // barrage of if else statements, yay!
           if (this.gameStatePocketedBalls.indexOf(9) != -1) {
-            window.alert("Nine ball was pocketed!");
             // The Nine ball was pocketed. Someone has won the rack.
             if (this.gameStateFirstCueBallHit != this.gameStateNextBall) {
-              window.alert("Nine ball was pocketed on a foul! The other player wins this rack!");
               // The Nine ball was pocketed on a foul. We simply award the
               // rack to the other player.
-              this.gameLogicAwardMatch((this.gameStatePlayer == 1) ? 2 : 1);
+              this.gameLogicAwardRack((this.gameStatePlayer == 1) ? 2 : 1);
               this.gameState = 'postRack';
               break;
             } else {
               // The Nine ball was pocketed with legitimate means (We don't
               // care if the cue ball was pocketed or not). The rack is
               // awarded to the current player.
-              window.alert("The current player wins this rack!");
-              this.gameLogicAwardMatch(this.gameStatePlayer);
+              this.gameLogicAwardRack(this.gameStatePlayer);
               this.gameState = 'postRack';
               break;
             }
@@ -2094,15 +2230,20 @@ BilliardTable.prototype.tickGameLogic = function(dt) {
             // TODO: The cue ball was pocketed (without pocketing the nine
             // ball). We issue a foul to the current player and switch
             // players.
-          } else {
-            if (this.gameStateFirstCueBallHit != this.gameStateNextBall) {
-              // The current player fouled by not hitting the next ball
-              // first. We issue a foul to the current player and switch
-              // players.
-            }
+            this.gameLogicNextPlayer();
+            window.alert("The cue ball was pocketed! That's a foul!");
+          } else if (this.gameStateFirstCueBallHit != this.gameStateNextBall) {
+            // The current player fouled by not hitting the next ball
+            // first. We issue a foul to the current player and switch
+            // players.
+            window.alert("The player did not hit the right ball! That's a foul!");
+            this.gameLogicNextPlayer();
+          } else if (this.gameStatePocketedBalls.length <= 0) {
+            // No balls were pocketed; the turn goes to the next player
+            this.gameLogicNextPlayer();
           }
-          // TODO: Check if the next ball was pocketed
-          if (this.gameStatePocketedBalls.indexOf(this.gameStateNextBall)) {
+          // Check if the next ball was pocketed
+          if (this.gameStatePocketedBalls.indexOf(this.gameStateNextBall) != -1) {
             // The next ball was pocketed. We must determine what the next
             // next ball should be.
             // NOTE: The gameStateBallsInPlay array is always sorted, because
@@ -2110,16 +2251,16 @@ BilliardTable.prototype.tickGameLogic = function(dt) {
             // with Array.prototype.slice()
             this.gameStateNextBall = this.gameStateBallsInPlay[0];
           }
-          // TODO: The player at least pocketed some ball; it remains their turn.
           // "Consume" the pocketed balls for this shot
           this.gameStatePocketedBalls = undefined;
-          // Return the HUD to displaying the next ball
+          // Return the HUD to displaying the player next ball
+          hud.player(this.gameStatePlayer);
           hud.nextBall(this.gameStateNextBall);
+          this.gameState = 'playingRack';
+          break;
         case 'postRack':
-          // TODO: Determine who pocketed the nine ball and award that player the match.
-          // TODO: Determine if we are done with this match or not
-          // TODO: Communicate to the main state machine that we want to re-rack the balls
-          this.state = 'startRack';
+          // Determine if we are done with this match or not
+          break;
         case 'postMatch':
         default:
           throw "Encountered unknown game state '" + this.gameState + "'!";
@@ -2581,10 +2722,6 @@ BilliardTable.prototype.handleEdgeCollision = function(ball, edge) {
     ball.velocity = scale(BALL_CLOTH_COEFFICIENT_OF_RESTITUTION, ball.velocity);  // FIXME: Don't apply coefficient of restitution if the ball wasn't reflected
   }
   // TODO: Play an appropriate sound
-  if (typeof ball.firstHitTime == 'undefined') {
-    // We're the first hit; store the time
-    ball.firstHitTime = this.simulationElapsedTime;
-  }
 }
 BilliardTable.prototype.handleCornerCollision = function(ball, corner, collisionNormal) {
   // Compute the reflection for the velocity
@@ -2604,10 +2741,6 @@ BilliardTable.prototype.handleCornerCollision = function(ball, corner, collision
     // Apply coefficient of restitution (bounciness) only if the reflection
     // actually changed the velocity
     ball.velocity = scale(BALL_CLOTH_COEFFICIENT_OF_RESTITUTION, ball.velocity);  // FIXME: Don't apply coefficient of restitution if the ball wasn't reflected
-  }
-  if (typeof ball.firstHitTime == 'undefined') {
-    // We're the first hit; store the time
-    ball.firstHitTime = this.simulationElapsedTime;
   }
 }
 BilliardTable.prototype.pocketBall = function(ballNumber, pocketName) {
@@ -2632,6 +2765,12 @@ BilliardTable.prototype.pocketBall = function(ballNumber, pocketName) {
   // replay
   this.pocketedBalls.push(ballNumber);
   this.recentlyPocketedBalls.push(ballNumber);
+  // Pocketing the cue ball is a foul
+  if (ballNumber == 0) {
+    if (this.state == 'simulation') {
+      hud.foul();
+    }
+  }
 }
 
 BilliardTable.prototype.setCameraInteractive = function() {
@@ -2843,6 +2982,12 @@ BilliardTable.prototype.noteBallBallCollision = function(ball, otherBall) {
     if (ball.number == 0) {
       // We're the cue ball; inform the game logic state machine
       this.gameLogicFirstCueBallHit(otherBall.number);
+      if (otherBall.number != this.gameStateNextBall) {
+        // The player didn't hit the next ball; thats a foul!
+        if (this.state == 'simulation') {
+          hud.foul();
+        }
+      }
     }
   }
 }
@@ -3004,13 +3149,26 @@ CueStick.prototype.draw = function(gl, modelWorld, worldView, projection) {
   // The cue stick is always drawn on top
   gl.depthFunc(gl.ALWAYS);
 
-  // TODO: Draw a line to the cue ball (especially for perspective shots)
-
   MeshObject.prototype.draw.call(this, gl, modelWorld, worldView, projection);
 
   // Clean up
   gl.depthFunc(gl.LESS);
   gl.disable(gl.BLEND);
+
+  // TODO: Draw a line to the cue ball (especially for perspective shots)
+  /*
+  if (typeof this.cueBallPosition != 'undefined') {
+    cueBallDirection = subtract(this.cueBallPosition, this.position);
+    if (length(cueBallDirection > 0)) {
+      var cueBallDirection = normalize(cueBallDirection);
+      var verticies = [
+        cueBallPosition[0], cueBallPosition[1], cueBallPosition[2],
+        cueBallPosition[0] + cueBallDirection[0], cueBallPosition[1] + cueBallDirection[1], cueBallPosition[2] + cueBallDirection[2]
+      ];
+      debug.drawLine(vec3(cueBallPosition), vec3(add(cueBallPosition, cueBallDirection)));
+    }
+  }
+  */
 }
 
 //------------------------------------------------------------
@@ -3873,11 +4031,41 @@ REPLAY_TEXTURE_HEIGHT = 512.0;
 REPLAY_COLOR = vec3(0.7, 0.0, 0.0);
 REPLAY_BLINK_INTERVAL = 0.5;
 
+FOUL_TEXTURE = "common/foul_text_sdf.png";
+FOUL_TEXTURE_WIDTH = 2048.0;
+FOUL_TEXTURE_HEIGHT = 512.0;
+FOUL_COLOR = REPLAY_COLOR.slice();
+
 NEXT_BALL_TEXTURE = "common/next_ball_text_sdf.png";
-//NEXT_BALL_TEXTURE = "common/billiard_ball_8_sdf_near.png";
 NEXT_BALL_TEXTURE_WIDTH = 4096.0;
 NEXT_BALL_TEXTURE_HEIGHT = 512.0;
 NEXT_BALL_COLOR = vec3(1.0, 1.0, 1.0);
+
+PLAYER_ONE_TEXTURE = "common/player_one_text_sdf.png";
+PLAYER_ONE_TEXTURE_WIDTH = 4096.0;
+PLAYER_ONE_TEXTURE_HEIGHT = 512.0;
+PLAYER_ONE_COLOR = vec3(1.0, 1.0, 1.0);
+
+PLAYER_TWO_TEXTURE = "common/player_two_text_sdf.png";
+PLAYER_TWO_TEXTURE_WIDTH = 4096.0;
+PLAYER_TWO_TEXTURE_HEIGHT = 512.0;
+PLAYER_TWO_COLOR = vec3(1.0, 1.0, 1.0);
+
+PLAYER_ONE_WINS_TEXTURE = "common/player_one_wins_text_sdf.png";
+PLAYER_ONE_WINS_TEXTURE_WIDTH = 4096.0;
+PLAYER_ONE_WINS_TEXTURE_HEIGHT = 512.0;
+PLAYER_ONE_WINS_COLOR = vec3(1.0, 1.0, 1.0);
+
+PLAYER_TWO_WINS_TEXTURE = "common/player_two_wins_text_sdf.png";
+PLAYER_TWO_WINS_TEXTURE_WIDTH = 4096.0;
+PLAYER_TWO_WINS_TEXTURE_HEIGHT = 512.0;
+PLAYER_TWO_WINS_COLOR = vec3(1.0, 1.0, 1.0);
+
+PRESS_SPACEBAR_TEXTURE = "common/press_spacebar_text_sdf.png";
+PRESS_SPACEBAR_TEXTURE_WIDTH = 4096.0;
+PRESS_SPACEBAR_TEXTURE_HEIGHT = 512.0;
+PRESS_SPACEBAR_COLOR = REPLAY_COLOR;
+PRESS_SPACEBAR_BLINK_INTERVAL = REPLAY_BLINK_INTERVAL;
 
 // The flat n' rectangular things we want to draw on the HUD and menu
 var Text = function(texture, textureWidth, textureHeight, color) {
@@ -3986,15 +4174,42 @@ var HeadsUpDisplay = function() {
 
   this.text = {};
   this.text.nextBall = new Text(NEXT_BALL_TEXTURE, NEXT_BALL_TEXTURE_WIDTH, NEXT_BALL_TEXTURE_HEIGHT, NEXT_BALL_COLOR);
+  this.text.playerOne = new Text(PLAYER_ONE_TEXTURE, PLAYER_ONE_TEXTURE_WIDTH, PLAYER_ONE_TEXTURE_HEIGHT, PLAYER_ONE_COLOR);
+  this.text.playerTwo = new Text(PLAYER_TWO_TEXTURE, PLAYER_TWO_TEXTURE_WIDTH, PLAYER_TWO_TEXTURE_HEIGHT, PLAYER_TWO_COLOR);
+  this.text.playerOneWins = new Text(PLAYER_ONE_WINS_TEXTURE, PLAYER_ONE_WINS_TEXTURE_WIDTH, PLAYER_ONE_WINS_TEXTURE_HEIGHT, PLAYER_ONE_WINS_COLOR);
+  this.text.playerTwoWins = new Text(PLAYER_TWO_WINS_TEXTURE, PLAYER_TWO_WINS_TEXTURE_WIDTH, PLAYER_TWO_WINS_TEXTURE_HEIGHT, PLAYER_TWO_WINS_COLOR);
   this.text.replay = new Text(REPLAY_TEXTURE, REPLAY_TEXTURE_WIDTH, REPLAY_TEXTURE_HEIGHT, REPLAY_COLOR);
+  this.text.foul = new Text(FOUL_TEXTURE, FOUL_TEXTURE_WIDTH, FOUL_TEXTURE_HEIGHT, FOUL_COLOR);
+  this.text.pressSpacebar = new Text(PRESS_SPACEBAR_TEXTURE, PRESS_SPACEBAR_TEXTURE_WIDTH, PRESS_SPACEBAR_TEXTURE_HEIGHT, PRESS_SPACEBAR_COLOR);
 
   // Position the next ball text at the top of the screen in the margin
   this.text.nextBall.position = vec2(ORTHO_MARGIN * 0.89, TABLE_MODEL_WIDTH/2 + ORTHO_MARGIN/2);
   this.text.nextBall.scale = (ORTHO_MARGIN - HUD_MARGIN)/2;
 
+  // Position the player texts to the left of the next ball text, on the top of
+  // the screen in the margin
+  this.text.playerOne.position = vec2(-2*ORTHO_MARGIN, TABLE_MODEL_WIDTH/2 + ORTHO_MARGIN/2);
+  this.text.playerOne.scale = (ORTHO_MARGIN - HUD_MARGIN)/2;
+  this.text.playerTwo.position = vec2(-2*ORTHO_MARGIN, TABLE_MODEL_WIDTH/2 + ORTHO_MARGIN/2);
+  this.text.playerTwo.scale = (ORTHO_MARGIN - HUD_MARGIN)/2;
+
+  // Position the winning player texts in the middle
+  this.text.playerOneWins.position = vec2(0.0, 0.0);
+  this.text.playerOneWins.scale = TABLE_WIDTH/2.7;
+  this.text.playerTwoWins.position = vec2(0.0, 0.0);
+  this.text.playerTwoWins.scale = TABLE_WIDTH/2.7;
+  // Position the press spacebar text just under the winning player text
+  this.text.pressSpacebar.position = vec2(0.0, -TABLE_WIDTH/3);
+  this.text.pressSpacebar.scale = TABLE_WIDTH/5.0;
+
   // Position our replay text in the top left of the screen in the margin
   this.text.replay.position = vec2(-ORTHO_MARGIN, TABLE_MODEL_WIDTH/2 + ORTHO_MARGIN/2);
   this.text.replay.scale = ORTHO_MARGIN - HUD_MARGIN;
+
+  // Position the foul text smack-dab in the middle of the screen, so that we
+  // can irritate the player
+  this.text.foul.position = vec2(0.0, 0.0);
+  this.text.foul.scale = TABLE_WIDTH/2.0;
 
   this.camera = new Camera(
       { type: 'orthographic',
@@ -4008,6 +4223,9 @@ var HeadsUpDisplay = function() {
       HEADS_UP_DISPLAY_CAMERA_ORIENTATION);
 
   this.timeElapsed = 0.0;
+}
+HeadsUpDisplay.prototype.idle = function() {
+  this.state = 'idle';
 }
 HeadsUpDisplay.prototype.nextBall = function(ballNumber) {
   this.ball = new BilliardBall(ballNumber);
@@ -4025,8 +4243,18 @@ HeadsUpDisplay.prototype.nextBall = function(ballNumber) {
   // Notify our state machine
   this.state = 'startNextBall';
 }
+HeadsUpDisplay.prototype.player = function(playerNumber) {
+  this.playerNumber = playerNumber;
+}
 HeadsUpDisplay.prototype.replay = function() {
   this.state = 'startReplay';
+}
+HeadsUpDisplay.prototype.foul = function() {
+  this.state = 'startFoul';
+}
+HeadsUpDisplay.prototype.playerWins = function(playerNumber) {
+  this.state = 'startPlayerWins';
+  this.winningPlayerNumber = playerNumber;
 }
 HeadsUpDisplay.prototype.tick = function(dt) {
 //  this.ball.tick();  // NOTE: pointless; our ball doesn't have any smarts
@@ -4064,15 +4292,50 @@ HeadsUpDisplay.prototype.draw = function(gl) {
       // TODO: Draw the "Next Ball: " text
       // FIXME: This is replay... bleh
       this.text.nextBall.draw(gl, modelWorld, worldView, projection);
+      switch (this.playerNumber) {
+        case 1:
+          this.text.playerOne.draw(gl, modelWorld, worldView, projection);
+          break;
+        case 2:
+          this.text.playerTwo.draw(gl, modelWorld, worldView, projection);
+          break;
+        default:
+          throw "Unknown player number: " + this.playerNumber;
+      }
       break;
     case 'startReplay':
-      this.replayTimeElapsed = -dt;  // -dt + dt = 0.0
+      this.timeElapsed = -dt;  // -dt + dt = 0.0
       this.state = 'replay';
     case 'replay':
-      this.replayTimeElapsed += dt;
+      this.timeElapsed += dt;
       // Make the replay text blink
-      if (Math.floor(this.replayTimeElapsed / REPLAY_BLINK_INTERVAL)%2 == 0) {
+      if (Math.floor(this.timeElapsed / REPLAY_BLINK_INTERVAL)%2 == 0) {
         this.text.replay.draw(gl, modelWorld, worldView, projection);
+      }
+      break;
+    case 'startFoul':
+      this.state = 'foul';
+    case 'foul':
+      this.text.foul.draw(gl, modelWorld, worldView, projection);
+      break;
+    case 'startPlayerWins':
+      this.timeElapsed = -dt;  // -dt + dt = 0.0
+      this.state = 'playerWins';
+    case 'playerWins':
+      this.timeElapsed += dt;
+      switch (this.winningPlayerNumber) {
+        case 1:
+          this.text.playerOneWins.draw(gl, modelWorld, worldView, projection);
+          break;
+        case 2:
+          this.text.playerTwoWins.draw(gl, modelWorld, worldView, projection);
+          break;
+        default:
+          throw "Unknown player number: " + this.winningPlayerNumber;
+      }
+      // Make the press spacebar text blink
+      if (Math.floor(this.timeElapsed / PRESS_SPACEBAR_BLINK_INTERVAL)%2 == 0) {
+        this.text.pressSpacebar.draw(gl, modelWorld, worldView, projection);
       }
       break;
   }
