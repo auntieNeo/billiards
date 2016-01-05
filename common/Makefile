@@ -7,7 +7,10 @@ sdf_far_ball_args = 256 128 .7
 sdf_text_args = 1024 128 .2
 sdf_short_text_args = 512 128 .1
 
-all: billiard_ball_1_sdf_near.png billiard_ball_1_sdf_far.png billiard_ball_2_sdf_near.png billiard_ball_2_sdf_far.png billiard_ball_3_sdf_near.png billiard_ball_3_sdf_far.png billiard_ball_4_sdf_near.png billiard_ball_4_sdf_far.png billiard_ball_5_sdf_near.png billiard_ball_5_sdf_far.png billiard_ball_6_sdf_near.png billiard_ball_6_sdf_far.png billiard_ball_7_sdf_near.png billiard_ball_7_sdf_far.png billiard_ball_8_sdf_near.png billiard_ball_8_sdf_far.png billiard_ball_9_sdf_near.png billiard_ball_9_sdf_far.png billiard_ball_10_sdf_near.png billiard_ball_10_sdf_far.png billiard_ball_11_sdf_near.png billiard_ball_11_sdf_far.png billiard_ball_12_sdf_near.png billiard_ball_12_sdf_far.png billiard_ball_13_sdf_near.png billiard_ball_13_sdf_far.png billiard_ball_14_sdf_near.png billiard_ball_14_sdf_far.png billiard_ball_15_sdf_near.png billiard_ball_15_sdf_far.png next_ball_text_sdf.png replay_text_sdf.png foul_text_sdf.png player_one_text_sdf.png player_two_text_sdf.png player_one_wins_text_sdf.png player_two_wins_text_sdf.png press_spacebar_text_sdf.png
+sdf_high_ball_args = 1024 512 .08
+sdf_ultra_high_ball_args = 2048 1024 .05
+
+all: billiard_ball_1_sdf_near.png billiard_ball_1_sdf_far.png billiard_ball_2_sdf_near.png billiard_ball_2_sdf_far.png billiard_ball_3_sdf_near.png billiard_ball_3_sdf_far.png billiard_ball_4_sdf_near.png billiard_ball_4_sdf_far.png billiard_ball_5_sdf_near.png billiard_ball_5_sdf_far.png billiard_ball_6_sdf_near.png billiard_ball_6_sdf_far.png billiard_ball_7_sdf_near.png billiard_ball_7_sdf_far.png billiard_ball_8_sdf_near.png billiard_ball_8_sdf_far.png billiard_ball_9_sdf_near.png billiard_ball_9_sdf_far.png billiard_ball_10_sdf_near.png billiard_ball_10_sdf_far.png billiard_ball_11_sdf_near.png billiard_ball_11_sdf_far.png billiard_ball_12_sdf_near.png billiard_ball_12_sdf_far.png billiard_ball_13_sdf_near.png billiard_ball_13_sdf_far.png billiard_ball_14_sdf_near.png billiard_ball_14_sdf_far.png billiard_ball_15_sdf_near.png billiard_ball_15_sdf_far.png next_ball_text_sdf.png replay_text_sdf.png foul_text_sdf.png player_one_text_sdf.png player_two_text_sdf.png player_one_wins_text_sdf.png player_two_wins_text_sdf.png press_spacebar_text_sdf.png billiard_ball_9_sdf_high.png billiard_ball_9_sdf_ultra_high.png
 
 # Generate SDF textures for near shots (especially in replays)
 billiard_ball_1_sdf_near.png: billiard_ball_1_bitmask.png
@@ -72,6 +75,12 @@ billiard_ball_14_sdf_far.png: billiard_ball_14_bitmask.png
 	$(sdf) ./billiard_ball_14_bitmask.png ./billiard_ball_14_sdf_far.png $(sdf_far_ball_args)
 billiard_ball_15_sdf_far.png: billiard_ball_15_bitmask.png
 	$(sdf) ./billiard_ball_15_bitmask.png ./billiard_ball_15_sdf_far.png $(sdf_far_ball_args)
+
+# Generate some very high resolution SDF's for demonstration
+billiard_ball_9_sdf_high.png: billiard_ball_9_bitmask.png
+	$(sdf) ./billiard_ball_9_bitmask.png ./billiard_ball_9_sdf_high.png $(sdf_high_ball_args)
+billiard_ball_9_sdf_ultra_high.png: billiard_ball_9_bitmask.png
+	$(sdf) ./billiard_ball_9_bitmask.png ./billiard_ball_9_sdf_ultra_high.png $(sdf_ultra_high_ball_args)
 
 # Generate SDF textures for text in the menu
 next_ball_text_sdf.png: next_ball_text_bitmask.png

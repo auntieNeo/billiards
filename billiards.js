@@ -3763,7 +3763,7 @@ function quat(axis, angle) {
           axis[2] * Math.sin(angle / 2),
           Math.cos(angle / 2));
     } else {
-      throw "Quat(): quaternion axis must be a vec3";
+      throw "quat(): quaternion axis must be a vec3";
     }
   } else {
     // NOTE: I stole this clever bit from Edward Angel's geometry library...
